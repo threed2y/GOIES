@@ -1,17 +1,14 @@
 """
-server.py — GOIES FastAPI Backend
-Replaces Streamlit entirely. Serves the SPA + REST API.
-
-Run:  uvicorn server:app --reload --port 8000
-Open: http://localhost:8000
+server.py — GOIES FastAPI Backend v3
+New in this version:
+  - /api/geo         — country positions + tension metrics
+  - /api/simulate    — policy simulation (graph clone, LLM cascade)
+  - /api/forecast    — crisis forecasting (structural + LLM)
 """
 
 from __future__ import annotations
-
-import io
-import pathlib
+import io, pathlib, re
 from typing import Any, Dict, List, Optional
-
 import networkx as nx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,19 +28,17 @@ from utils import (
     retrieve_graph_context,
     save_graph,
 )
+from geo import get_geo_data
+from simulator import run_simulation
+from forecaster import run_forecast
 
-# ── App ───────────────────────────────────────────────────────────────────────
-app = FastAPI(title="GOIES", version="2.0.0", docs_url="/api/docs")
-
+app = FastAPI(title="GOIES", version="3.0.0", docs_url="/api/docs")
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
 
-# ── In-memory graph (auto-persisted on every write) ───────────────────────────
 graph: nx.DiGraph = load_graph()
+MAX_INPUT_CHARS = 8_000
 
 GROUP_COLORS: Dict[str, str] = {
     "country": "#ff7b72",
@@ -56,11 +51,8 @@ GROUP_COLORS: Dict[str, str] = {
     "unknown": "#8b949e",
 }
 
-MAX_INPUT_CHARS = 8_000
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-def _fmt_tooltip(group: str, attributes: dict, confidence: float) -> str:
+def _fmt_tooltip(group, attributes, confidence):
     color = GROUP_COLORS.get(group, "#8b949e")
     lines = [f'<b style="color:{color};font-family:monospace">{group.upper()}</b>']
     for k, v in attributes.items():
@@ -69,13 +61,16 @@ def _fmt_tooltip(group: str, attributes: dict, confidence: float) -> str:
     return "<br>".join(lines)
 
 
-def graph_to_vis(g: nx.DiGraph) -> Dict[str, List]:
-    """Converts nx.DiGraph to vis.js nodes/edges format."""
+def graph_to_vis(g: nx.DiGraph):
     nodes = []
     for node_id, data in g.nodes(data=True):
         group = data.get("group", "unknown")
         color = GROUP_COLORS.get(group, "#8b949e")
         conf = data.get("confidence", 1.0)
+        try:
+            attrs = eval(data.get("title", "{}"))
+        except:
+            attrs = {}
         nodes.append(
             {
                 "id": node_id,
@@ -87,9 +82,7 @@ def graph_to_vis(g: nx.DiGraph) -> Dict[str, List]:
                     "highlight": {"background": "#ffffff", "border": color},
                     "hover": {"background": color, "border": "#ffffff"},
                 },
-                "title": _fmt_tooltip(
-                    group, eval(data.get("title", "{}")), conf
-                ),  # noqa: S307
+                "title": _fmt_tooltip(group, attrs, conf),
                 "confidence": conf,
                 "size": 16,
                 "borderWidth": 2,
@@ -103,7 +96,6 @@ def graph_to_vis(g: nx.DiGraph) -> Dict[str, List]:
                 },
             }
         )
-
     edges = []
     for u, v, data in g.edges(data=True):
         edges.append(
@@ -129,17 +121,13 @@ def graph_to_vis(g: nx.DiGraph) -> Dict[str, List]:
                 "confidence": data.get("confidence", 1.0),
             }
         )
-
     return {"nodes": nodes, "edges": edges}
 
 
-def _update_graph(extractions) -> Dict[str, Any]:
-    """Upserts extractions into graph. Returns diff stats."""
+def _update_graph(extractions):
     nodes_added, edges_added, new_ids = 0, 0, []
-
     for ext in extractions:
         cls = ext.extraction_class.lower()
-
         if cls in {
             "country",
             "person",
@@ -159,7 +147,6 @@ def _update_graph(extractions) -> Dict[str, Any]:
                 group=cls,
                 confidence=ext.confidence,
             )
-
         elif cls == "relationship":
             src_raw = ext.attributes.get("source", "")
             tgt_raw = ext.attributes.get("target", "")
@@ -175,7 +162,6 @@ def _update_graph(extractions) -> Dict[str, Any]:
             graph.add_edge(
                 src, tgt, label=ext.extraction_text, confidence=ext.confidence
             )
-
     save_graph(graph)
     return {
         "nodes_added": nodes_added,
@@ -184,7 +170,7 @@ def _update_graph(extractions) -> Dict[str, Any]:
     }
 
 
-# ── Pydantic request models ───────────────────────────────────────────────────
+# ── Request Models ─────────────────────────────────────────────────────────────
 class ExtractRequest(BaseModel):
     text: str
     model: str = "llama3.2"
@@ -195,12 +181,17 @@ class QueryRequest(BaseModel):
     model: str = "llama3.2"
 
 
-class EgoRequest(BaseModel):
-    node: str
-    hops: int = 2
+class SimulateRequest(BaseModel):
+    scenario: str
+    model: str = "llama3.2"
 
 
-# ── API Routes ────────────────────────────────────────────────────────────────
+class ForecastRequest(BaseModel):
+    model: str = "llama3.2"
+    focus: str = ""
+
+
+# ── Existing Endpoints ─────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
     return check_ollama_health()
@@ -212,11 +203,11 @@ def models():
 
 
 @app.get("/api/graph")
-def get_graph(ego: Optional[str] = None, hops: int = 2):
+def get_graph_ep(ego: Optional[str] = None, hops: int = 2):
     g = get_ego_subgraph(graph, ego, hops) if ego and ego in graph else graph
     return {
         "vis": graph_to_vis(g),
-        "analytics": get_graph_analytics(graph),  # always full-graph analytics
+        "analytics": get_graph_analytics(graph),
         "filtered": ego is not None and ego in graph,
     }
 
@@ -226,8 +217,7 @@ def extract(req: ExtractRequest):
     if not req.text.strip():
         raise HTTPException(400, "Text cannot be empty.")
     if len(req.text) > MAX_INPUT_CHARS:
-        raise HTTPException(400, f"Input exceeds {MAX_INPUT_CHARS:,} character limit.")
-
+        raise HTTPException(400, f"Input exceeds {MAX_INPUT_CHARS:,} chars.")
     try:
         extractions = extract_intelligence(req.text, model=req.model)
     except ConnectionError as e:
@@ -236,17 +226,14 @@ def extract(req: ExtractRequest):
         raise HTTPException(504, str(e))
     except ValueError as e:
         raise HTTPException(422, str(e))
-
     diff = _update_graph(extractions)
     entities = sum(
         1 for e in extractions if e.extraction_class.lower() != "relationship"
     )
-    relations = len(extractions) - entities
-
     return {
         "extractions": len(extractions),
         "entities": entities,
-        "relations": relations,
+        "relations": len(extractions) - entities,
         **diff,
         "vis": graph_to_vis(graph),
         "analytics": get_graph_analytics(graph),
@@ -258,17 +245,14 @@ def query(req: QueryRequest):
     import requests as http
 
     if len(graph.nodes) == 0:
-        return {"answer": "The graph is empty. Ingest data first.", "context": ""}
-
+        return {"answer": "Graph is empty. Ingest data first.", "context": ""}
     context = retrieve_graph_context(req.question, graph)
     prompt = (
         "You are a senior geopolitical intelligence analyst. "
-        "Answer using ONLY the Knowledge Graph Context provided. "
+        "Answer using ONLY the Knowledge Graph Context. "
         'If insufficient, say "Insufficient data in current intelligence graph."\n\n'
-        f"Knowledge Graph Context:\n{context}\n\n"
-        f"Question: {req.question}\n\nConcise strategic answer:"
+        f"Knowledge Graph Context:\n{context}\n\nQuestion: {req.question}\n\nConcise strategic answer:"
     )
-
     try:
         resp = http.post(
             "http://localhost:11434/api/generate",
@@ -276,10 +260,9 @@ def query(req: QueryRequest):
             timeout=60,
         )
         resp.raise_for_status()
-        answer = resp.json().get("response", "No response generated.")
+        answer = resp.json().get("response", "No response.")
     except Exception as e:
         raise HTTPException(503, f"Ollama error: {e}")
-
     return {"answer": answer, "context": context}
 
 
@@ -310,14 +293,84 @@ def export(fmt: str):
             media_type="application/xml",
             headers={"Content-Disposition": "attachment; filename=goies_graph.graphml"},
         )
-    raise HTTPException(400, f"Unknown format: {fmt}. Use json, csv, or graphml.")
+    raise HTTPException(400, f"Unknown format: {fmt}")
 
 
-# ── Static files (SPA frontend) ───────────────────────────────────────────────
+# ── NEW: Geo Endpoint ──────────────────────────────────────────────────────────
+@app.get("/api/geo")
+def get_geo():
+    markers = get_geo_data(graph)
+    return {"markers": markers, "total": len(markers)}
+
+
+# ── NEW: Policy Simulation ─────────────────────────────────────────────────────
+@app.post("/api/simulate")
+def simulate(req: SimulateRequest):
+    if not req.scenario.strip():
+        raise HTTPException(400, "Scenario cannot be empty.")
+    if len(graph.nodes) == 0:
+        raise HTTPException(400, "Graph is empty. Ingest data first.")
+    try:
+        result = run_simulation(req.scenario, graph, model=req.model)
+    except ConnectionError as e:
+        raise HTTPException(503, str(e))
+    except TimeoutError as e:
+        raise HTTPException(504, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    return {
+        "scenario": result.scenario,
+        "risk_score": result.risk_score,
+        "risk_label": result.risk_label,
+        "cascade_narrative": result.cascade_narrative,
+        "second_order": result.second_order,
+        "added_edges": result.added_edges,
+        "removed_edges": result.removed_edges,
+        "affected_nodes": result.affected_nodes,
+        "model_used": result.model_used,
+    }
+
+
+# ── NEW: Crisis Forecast ───────────────────────────────────────────────────────
+@app.post("/api/forecast")
+def forecast(req: ForecastRequest):
+    if len(graph.nodes) < 3:
+        raise HTTPException(400, "Need at least 3 nodes to generate a forecast.")
+    try:
+        result = run_forecast(graph, model=req.model, focus_query=req.focus)
+    except ConnectionError as e:
+        raise HTTPException(503, str(e))
+    except TimeoutError as e:
+        raise HTTPException(504, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    return {
+        "global_risk": result.global_risk,
+        "global_label": result.global_label,
+        "structural_summary": result.structural_summary,
+        "hotspot_nodes": result.hotspot_nodes,
+        "model_used": result.model_used,
+        "forecasts": [
+            {
+                "rank": f.rank,
+                "title": f.title,
+                "actors": f.actors,
+                "probability": f.probability,
+                "severity": f.severity,
+                "timeframe": f.timeframe,
+                "structural_signal": f.structural_signal,
+                "narrative": f.narrative,
+                "mitigation": f.mitigation,
+            }
+            for f in result.forecasts
+        ],
+    }
+
+
+# ── Static SPA ─────────────────────────────────────────────────────────────────
 _static = pathlib.Path(__file__).parent / "static"
 _static.mkdir(exist_ok=True)
 app.mount("/", StaticFiles(directory=str(_static), html=True), name="static")
-
 
 if __name__ == "__main__":
     import uvicorn
