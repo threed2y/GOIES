@@ -7,27 +7,30 @@ New in this version:
 """
 
 from __future__ import annotations
-import io, pathlib, re
-from typing import Any, Dict, List, Optional
-import networkx as nx
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from fastapi.staticfiles import StaticFiles
+import json
+import asyncio
+from datetime import datetime
+import pathlib
+import io
+import uvicorn
 from pydantic import BaseModel
-
-from extractor import check_ollama_health, extract_intelligence, list_available_models
+import pydantic
+from fastapi import FastAPI, HTTPException, Request, Response, BackgroundTasks, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
+import networkx as nx
+from typing import Dict, List, Optional, Any
 from utils import (
-    export_csv,
-    export_graphml,
-    export_json,
-    get_ego_subgraph,
     get_graph_analytics,
     load_graph,
     resolve_node_name,
     retrieve_graph_context,
     save_graph,
+    export_json,
+    export_csv,
+    export_graphml,
 )
+from fastapi.staticfiles import StaticFiles
 from geo import get_geo_data
 from simulator import run_simulation
 from forecaster import run_forecast
@@ -174,21 +177,43 @@ def _update_graph(extractions):
 class ExtractRequest(BaseModel):
     text: str
     model: str = "llama3.2"
+    persona: str = "senior geopolitical intelligence analyst"
 
 
 class QueryRequest(BaseModel):
     question: str
     model: str = "llama3.2"
+    persona: str = "senior geopolitical intelligence analyst"
 
 
 class SimulateRequest(BaseModel):
     scenario: str
     model: str = "llama3.2"
+    persona: str = "strategic policy simulator"
 
 
 class ForecastRequest(BaseModel):
     model: str = "llama3.2"
     focus: str = ""
+
+
+class UrlIngestRequest(BaseModel):
+    url: str
+
+
+class ReportRequest(BaseModel):
+    entities: List[str] = []
+    format: str = "pdf"
+    model: str = "llama3.2"
+
+
+class WatchListRequest(BaseModel):
+    thresholds: Dict[str, float]
+
+
+# ── State ──────────────────────────────────────────────────────────────────────
+# Note: For MVP/P2, maintaining the watch list thresholds in-memory per session.
+watch_list_thresholds: Dict[str, float] = {}
 
 
 # ── Existing Endpoints ─────────────────────────────────────────────────────────
@@ -197,19 +222,212 @@ def health():
     return check_ollama_health()
 
 
+@app.post("/api/ingest/url")
+def ingest_url(req: UrlIngestRequest):
+    try:
+        from ingestor import fetch_url_text
+        text = fetch_url_text(req.url)
+        return {"text": text}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/ingest/file")
+async def ingest_file(file: UploadFile = File(...)):
+    from ingestor import parse_pdf, parse_docx
+    content = await file.read()
+    filename = file.filename.lower() if file.filename else ""
+    
+    try:
+        if filename.endswith(".pdf"):
+            text = parse_pdf(content)
+        elif filename.endswith(".docx"):
+            text = parse_docx(content)
+        elif filename.endswith(".txt") or filename.endswith(".md"):
+            text = content.decode("utf-8", errors="ignore")
+        else:
+            raise HTTPException(400, "Unsupported file format. Please upload PDF, DOCX, TXT, or MD.")
+        return {"text": text, "filename": filename}
+    except Exception as e:
+        raise HTTPException(500, f"Error parsing file: {str(e)}")
+
+
 @app.get("/api/models")
 def models():
     return {"models": list_available_models()}
 
+
+@app.get("/api/snapshots")
+def list_snapshots():
+    import os
+    if not os.path.exists("goies_snapshots"):
+        return {"snapshots": []}
+    files = sorted([f for f in os.listdir("goies_snapshots") if f.endswith(".json")], reverse=True)
+    return {"snapshots": files}
+
+
+@app.get("/api/snapshots/timeline")
+def timeline():
+    import os, re
+    if not os.path.exists("goies_snapshots"):
+        return {"timeline": []}
+    files = sorted([f for f in os.listdir("goies_snapshots") if f.endswith(".json")])
+    timeline_data = []
+    for f in files:
+        # e.g. goies_graph_v_2026-03-09T180000Z.json
+        match = re.search(r'v_(.*)\.json', f)
+        if match:
+            timeline_data.append({"id": f, "date": match.group(1)})
+    return {"timeline": timeline_data}
+
+
+@app.get("/api/snapshots/{snapshot_id}")
+def get_snapshot(snapshot_id: str):
+    import os, json
+    import networkx as nx
+    filepath = os.path.join("goies_snapshots", snapshot_id)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    with open(filepath, "r", encoding="utf-8") as f:
+        data = json.load(f)
+        
+    g = nx.node_link_graph(data, directed=True, multigraph=False)
+    return {
+        "vis": graph_to_vis(g),
+        "analytics": get_graph_analytics(g, watch_list_thresholds)
+    }
+
+@app.post("/api/watch_list")
+def update_watch_list(req: WatchListRequest):
+    global watch_list_thresholds
+    watch_list_thresholds = req.thresholds
+    return {"status": "success", "thresholds": watch_list_thresholds}
+
+
+@app.post("/api/report")
+def export_report(req: ReportRequest):
+    import reporter
+    try:
+        from utils import load_graph, retrieve_graph_context
+        import requests as http
+        g = load_graph()
+        
+        summary = ""
+        if req.entities:
+            # Generate LLM summary for selected entities
+            context = _graph_context_summary(g, focus_nodes=req.entities)
+            prompt = (
+                f"You are a senior geopolitical intelligence analyst.\n"
+                f"Based on the following knowledge graph context focusing on {', '.join(req.entities)},\n"
+                f"write a concise executive strategic summary (max 3 paragraphs) of the situation.\n\n"
+                f"Context:\n{context}\n\nStrategic Summary:"
+            )
+            try:
+                resp = http.post(
+                    "http://localhost:11434/api/generate",
+                    json={"model": req.model, "prompt": prompt, "stream": False},
+                    timeout=60,
+                )
+                resp.raise_for_status()
+                summary = resp.json().get("response", "").strip()
+            except Exception as e:
+                print(f"Failed to generate LLM summary: {e}")
+        
+        if req.format.lower() == "md" or req.format.lower() == "markdown":
+            md_content = reporter.generate_markdown_report(g, req.entities, summary)
+            return Response(
+                content=md_content, 
+                media_type="text/markdown", 
+                headers={"Content-Disposition": "attachment; filename=goies_brief.md"}
+            )
+        else:
+            pdf_bytes = reporter.generate_report(g, req.entities, summary)
+            return Response(
+                content=pdf_bytes, 
+                media_type="application/pdf", 
+                headers={"Content-Disposition": "attachment; filename=goies_brief.pdf"}
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Report failed: {e}")
 
 @app.get("/api/graph")
 def get_graph_ep(ego: Optional[str] = None, hops: int = 2):
     g = get_ego_subgraph(graph, ego, hops) if ego and ego in graph else graph
     return {
         "vis": graph_to_vis(g),
-        "analytics": get_graph_analytics(graph),
+        "analytics": get_graph_analytics(graph, watch_list_thresholds),
         "filtered": ego is not None and ego in graph,
     }
+
+
+@app.get("/api/narrative/summary")
+def graph_summary(model: str = "llama3.2"):
+    from utils import get_graph_analytics
+    from extractor import _call_ollama
+    analytics = get_graph_analytics(graph, watch_list_thresholds)
+    
+    edge_sample = []
+    import itertools
+    for u, v, d in itertools.islice(graph.edges(data=True), 25):
+        edge_sample.append(f"{u} -> {v} [{d.get('label', '')}]")
+        
+    SUMMARY_PROMPT = f"""
+You are a senior intelligence analyst. Describe the following geopolitical network in 3 paragraphs.
+Focus on: major power actors, key conflict zones, most significant tensions, dominant alliance patterns.
+Use direct, professional language. No hedging. Cite specific entity names.
+
+Graph statistics:
+- {analytics.get('nodes')} entities: {analytics.get('group_counts', {{}})}
+- {analytics.get('edges')} relationships
+- Highest tension: {list(analytics.get('tensions', {{}}).items())[:3]}
+- Most connected: {analytics.get('top_degree', [])}
+
+Key relationships sample:
+{chr(10).join(edge_sample)}
+
+Write the 3-paragraph intelligence summary now:
+"""
+    try:
+        narrative = _call_ollama(SUMMARY_PROMPT, model)
+        return {"narrative": narrative, "generated_at": datetime.utcnow().isoformat()}
+    except Exception as e:
+        raise HTTPException(500, f"Summary generation failed: {e}")
+
+@app.get("/api/path")
+def path(src: str, tgt: str):
+    from graph_algo import find_shortest_path
+    from utils import resolve_node_name
+    src_canon = resolve_node_name(graph, src)
+    tgt_canon = resolve_node_name(graph, tgt)
+    
+    if not graph.has_node(src_canon) or not graph.has_node(tgt_canon):
+        raise HTTPException(404, "One or both nodes not found in graph.")
+        
+    path_data = find_shortest_path(graph, src_canon, tgt_canon)
+    if not path_data["nodes"]:
+        return {"found": False, "nodes": [], "edges": []}
+        
+    return {"found": True, "nodes": path_data["nodes"], "edges": path_data["edges"]}
+
+
+class MergeRequest(BaseModel):
+    source: str
+    target: str
+
+@app.post("/api/node/merge")
+def merge_node_ep(req: MergeRequest):
+    from utils import merge_nodes, resolve_node_name
+    src_canon = resolve_node_name(graph, req.source)
+    tgt_canon = resolve_node_name(graph, req.target)
+    
+    if src_canon == tgt_canon:
+        raise HTTPException(400, "Source and target resolve to the same node.")
+        
+    success = merge_nodes(graph, src_canon, tgt_canon)
+    if not success:
+        raise HTTPException(400, "Failed to merge nodes. Ensure both exist.")
+        
+    return {"status": "success", "merged": src_canon, "into": tgt_canon}
 
 
 @app.post("/api/extract")
@@ -236,8 +454,59 @@ def extract(req: ExtractRequest):
         "relations": len(extractions) - entities,
         **diff,
         "vis": graph_to_vis(graph),
-        "analytics": get_graph_analytics(graph),
+        "analytics": get_graph_analytics(graph, watch_list_thresholds),
     }
+
+
+@app.post("/api/extract/stream")
+def extract_stream(req: ExtractRequest):
+    import json
+    if not req.text.strip():
+        raise HTTPException(400, "Text cannot be empty.")
+    if len(req.text) > MAX_INPUT_CHARS:
+        raise HTTPException(400, f"Input exceeds {MAX_INPUT_CHARS:,} chars.")
+    
+    def event_generator():
+        total_entities = 0
+        total_relations = 0
+        new_nodes_all = []
+        try:
+            for chunk_data in extract_intelligence_stream(req.text, model=req.model, persona=req.persona):
+                extractions = chunk_data["extractions"]
+                diff = _update_graph(extractions)
+                
+                entities = sum(1 for e in extractions if e.extraction_class.lower() != "relationship")
+                relations = len(extractions) - entities
+                total_entities += entities
+                total_relations += relations
+                new_nodes_all.extend(diff["new_node_ids"])
+
+                event_payload = {
+                    "chunk": chunk_data["chunk_index"],
+                    "total_chunks": chunk_data["total_chunks"],
+                    "extractions": len(extractions),
+                    "entities": entities,
+                    "relations": relations,
+                    "new_node_ids": diff["new_node_ids"],
+                    "vis": graph_to_vis(graph),
+                    "analytics": get_graph_analytics(graph, watch_list_thresholds),
+                }
+                yield f"data: {json.dumps(event_payload)}\n\n"
+            
+            # Send 'done' event with totals
+            done_payload = {
+                "done": True,
+                "totals": {
+                    "entities": total_entities,
+                    "relations": total_relations,
+                    "new_nodes": list(set(new_nodes_all))
+                }
+            }
+            yield f"data: {json.dumps(done_payload)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.post("/api/query")
@@ -248,7 +517,7 @@ def query(req: QueryRequest):
         return {"answer": "Graph is empty. Ingest data first.", "context": ""}
     context = retrieve_graph_context(req.question, graph)
     prompt = (
-        "You are a senior geopolitical intelligence analyst. "
+        f"You are a {req.persona}. "
         "Answer using ONLY the Knowledge Graph Context. "
         'If insufficient, say "Insufficient data in current intelligence graph."\n\n'
         f"Knowledge Graph Context:\n{context}\n\nQuestion: {req.question}\n\nConcise strategic answer:"
@@ -330,6 +599,18 @@ def simulate(req: SimulateRequest):
         "model_used": result.model_used,
     }
 
+@app.get("/api/simulations")
+def get_simulations():
+    import os, json
+    history_file = "sim_history.json"
+    if not os.path.exists(history_file):
+        return {"history": []}
+    try:
+        with open(history_file, "r", encoding="utf-8") as f:
+            history = json.load(f)
+            return {"history": history}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read simulation history: {e}")
 
 # ── NEW: Crisis Forecast ───────────────────────────────────────────────────────
 @app.post("/api/forecast")

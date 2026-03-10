@@ -7,7 +7,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Syne+Mono&family=Barlow+Condensed:wght@300;400;500;600&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600&family=Share+Tech+Mono&family=Syne+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js"></script>
 
@@ -192,7 +192,7 @@ body::after {
 
 /* ── DRAWERS ──────────────────────────────────────────────────────────── */
 .drawer {
-  position: fixed; top: var(--hud-h); bottom: 0; z-index: 90;
+  position: fixed; top: var(--hud-h); bottom: 40px; z-index: 90;
   width: var(--drawer-w);
   background: var(--surface);
   backdrop-filter: blur(28px);
@@ -438,7 +438,7 @@ textarea:focus, input[type="text"]:focus {
 
 /* ── FLOATING ACTION BUTTONS ─────────────────────────────────────────── */
 .fab {
-  position: fixed; bottom: 28px; z-index: 95;
+  position: fixed; bottom: 68px; z-index: 95;
   display: flex; align-items: center; gap: 9px;
   padding: 11px 20px;
   background: var(--surface-hi);
@@ -471,7 +471,7 @@ textarea:focus, input[type="text"]:focus {
 
 /* ── NODE INSPECTOR ──────────────────────────────────────────────────── */
 #inspector {
-  position: fixed; bottom: 0;
+  position: fixed; bottom: 40px;
   left: 50%; transform: translateX(-50%) translateY(100%);
   width: clamp(320px, 52vw, 640px); z-index: 96;
   background: var(--surface-hi);
@@ -539,6 +539,23 @@ textarea:focus, input[type="text"]:focus {
   padding-top: 120px;
 }
 #search-overlay.open { display: flex; }
+
+/* ── PATH FINDER OVERLAY ──────────────────────────────────────────────── */
+#path-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(4,7,14,0.75);
+  backdrop-filter: blur(8px);
+  display: none; align-items: flex-start; justify-content: center;
+  padding-top: 120px;
+}
+#path-overlay.open { display: flex; }
+#path-wrap {
+  width: 400px; position: relative;
+  background: rgba(8,14,28,0.98); border: 1px solid var(--border-hi);
+  border-radius: 8px; padding: 20px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+}
+#path-wrap input { margin-bottom: 12px; }
 #search-wrap {
   width: 480px; position: relative;
 }
@@ -581,6 +598,163 @@ textarea:focus, input[type="text"]:focus {
   pointer-events: all;
 }
 @keyframes toast-in { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:none; } }
+
+@keyframes toast-in { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:none; } }
+
+/* ── SIMULATION HISTORY OVERLAY ──────────────────────────────────────── */
+#sim-history-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(4,7,14,0.75);
+  backdrop-filter: blur(8px);
+  display: none; align-items: flex-start; justify-content: center;
+  padding-top: 100px; padding-bottom: 100px;
+  overflow-y: auto;
+}
+#sim-history-overlay.open { display: flex; }
+#sim-history-wrap {
+  width: 800px; max-width: 90vw; background: rgba(8,14,28,0.98);
+  border: 1px solid var(--border-hi); border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+  display: flex; flex-direction: column; max-height: 90vh;
+}
+.sim-history-header {
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.sim-history-title {
+  font-family: var(--font-mono); font-size: 0.8rem; letter-spacing: 0.16em;
+  color: var(--cyan); font-weight: bold;
+}
+.sim-history-body {
+  padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px;
+}
+.sim-card {
+  border: 1px solid var(--border); border-radius: 6px; padding: 16px;
+  background: rgba(0,0,0,0.2);
+}
+.sim-card-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 12px;
+}
+.sim-card-scenario {
+  font-family: var(--font-body); font-size: 0.95rem; color: var(--text-hi);
+  font-weight: 500; margin-bottom: 4px;
+}
+.sim-card-time {
+  font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-dim);
+}
+.sim-card-risk {
+  padding: 4px 8px; border-radius: 4px; font-family: var(--font-mono);
+  font-size: 0.7rem; font-weight: bold;
+}
+.sim-card-narrative {
+  font-family: var(--font-body); font-size: 0.85rem; color: var(--text);
+  line-height: 1.5; margin-bottom: 12px; padding: 8px 12px;
+  background: rgba(255,255,255,0.03); border-left: 2px solid var(--cyan);
+}
+.sim-card-details {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-mid);
+}
+
+/* Compare Mode */
+.sim-compare-view {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+}
+.compare-select {
+  background: rgba(0,0,0,0.4); border: 1px solid var(--border);
+  color: var(--text-hi); font-family: var(--font-mono); font-size: 0.8rem;
+  padding: 8px; width: 100%; border-radius: 4px; outline: none; margin-bottom: 16px;
+}
+.compare-col {
+  border: 1px solid var(--border); border-radius: 6px; padding: 16px;
+  background: rgba(0,0,0,0.2);
+}
+
+/* ── REPORT MODAL ────────────────────────────────────────────────────── */
+#report-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(4,7,14,0.85);
+  backdrop-filter: blur(8px);
+  display: none; align-items: center; justify-content: center;
+}
+#report-overlay.open { display: flex; }
+#report-wrap {
+  width: 460px; background: var(--surface-hi);
+  border: 1px solid var(--border-hi); border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+  display: flex; flex-direction: column;
+}
+.report-header {
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.report-title {
+  font-family: var(--font-head); font-size: 0.9rem; letter-spacing: 0.16em;
+  color: var(--cyan); text-shadow: 0 0 10px rgba(0,229,255,0.3);
+}
+.report-body { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+.report-row { display: flex; flex-direction: column; gap: 6px; }
+.report-label {
+  font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 0.1em;
+  color: var(--text-dim); text-transform: uppercase;
+}
+#report-entities-input {
+  background: rgba(0,0,0,0.4); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px; color: var(--text-hi);
+  font-family: var(--font-mono); font-size: 0.8rem; outline: none;
+}
+.report-format-toggle { display: flex; gap: 8px; }
+.report-format-btn {
+  flex: 1; padding: 8px; background: rgba(0,0,0,0.4); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text-mid); font-family: var(--font-mono);
+  font-size: 0.75rem; cursor: pointer; transition: all 0.2s;
+}
+.report-format-btn.active { background: rgba(0,229,255,0.1); border-color: var(--cyan); color: var(--cyan); }
+.report-footer {
+  padding: 16px 20px; border-top: 1px solid var(--border);
+  display: flex; justify-content: flex-end; gap: 12px; background: rgba(0,0,0,0.2);
+}
+
+/* ── WATCH LIST ──────────────────────────────────────────────────────── */
+#watch-list-container {
+  position: fixed; right: 20px; top: calc(var(--hud-h) + 12px);
+  z-index: 100; display: flex; flex-direction: column; gap: 8px;
+  pointer-events: none; opacity: 0; transition: opacity 0.3s;
+}
+.watch-item {
+  background: var(--surface-hi); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px 14px;
+  backdrop-filter: blur(8px); pointer-events: all;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  animation: slide-in 0.3s ease;
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 16px; min-width: 220px; transition: border-color 0.2s, background 0.2s;
+}
+.watch-item.alert {
+  background: rgba(255, 34, 68, 0.15);
+  border-left: 3px solid var(--red);
+  border-color: rgba(255, 34, 68, 0.4);
+}
+.watch-item-name {
+  font-family: var(--font-head); font-size: 0.85rem; color: var(--text-hi);
+  font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px;
+}
+.watch-item-score {
+  font-family: var(--font-mono); font-size: 0.95rem; text-align: right;
+  font-weight: bold;
+}
+.watch-item-threshold {
+  font-family: var(--font-mono); font-size: 0.6rem; color: var(--text-dim);
+  text-align: right; margin-top: 2px;
+}
+.watch-remove-btn {
+  background: none; border: none; color: var(--text-dim); cursor: pointer;
+  padding: 4px; border-radius: 4px; transition: color 0.2s, background 0.2s;
+  display: flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+}
+.watch-remove-btn:hover { color: var(--text-hi); background: rgba(255,255,255,0.1); }
+@keyframes slide-in { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:none; } }
 .toast.fade-out { animation: toast-out 0.3s ease forwards; }
 @keyframes toast-out { to { opacity:0; transform:translateX(20px); } }
 .toast.success { color: var(--green); border-color: rgba(0,255,136,0.2); }
@@ -668,6 +842,36 @@ kbd {
   background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 3px; font-family: var(--font-mono);
 }
+/* ── TIMELINE SLIDER ─────────────────────────────────────────────────── */
+#timeline-container {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+  height: 40px; background: var(--surface-hi);
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 16px; padding: 0 24px;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+#timeline-label {
+  font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em;
+  color: var(--cyan); width: 140px; font-weight: bold;
+}
+#timeline-slider {
+  flex: 1; margin: 0;
+  -webkit-appearance: none; appearance: none;
+  background: transparent; outline: none;
+}
+#timeline-slider::-webkit-slider-runnable-track {
+  width: 100%; height: 4px; border-radius: 2px;
+  background: rgba(0,229,255,0.1); border: 1px solid rgba(0,229,255,0.2);
+}
+#timeline-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--cyan); box-shadow: 0 0 10px rgba(0,229,255,0.5);
+  cursor: pointer; margin-top: -7px;
+}
+#timeline-slider:disabled { opacity: 0.4; cursor: not-allowed; }
+
 </style>
 </head>
 <body>
@@ -705,6 +909,16 @@ kbd {
     <div class="hud-stat-val" id="hud-density">0</div>
     <div class="hud-stat-label">Density</div>
   </div>
+  <div class="hud-sep"></div>
+  <div class="hud-stat" id="hud-alerts-wrapper" style="color: var(--text-dim); cursor: pointer;" onclick="UI.toggleWatchList()">
+    <div class="hud-stat-val" id="hud-alerts" style="color: inherit">0</div>
+    <div class="hud-stat-label" style="color: inherit">Alerts</div>
+  </div>
+  <div class="hud-sep"></div>
+  <div class="hud-stat" style="cursor: help;">
+    <div class="hud-stat-val" id="hud-health">0</div>
+    <div class="hud-stat-label">Health</div>
+  </div>
   <div class="hud-spacer"></div>
   <select id="model-select">
     <option value="llama3.2">llama3.2</option>
@@ -714,7 +928,13 @@ kbd {
   <div style="width:6px"></div>
   <button class="hud-btn" onclick="API.exportGraph('csv')">CSV</button>
   <div style="width:6px"></div>
+  <button class="hud-btn" onclick="UI.togglePathOverlay()">PATH</button>
+  <div style="width:6px"></div>
   <button class="hud-btn" onclick="API.exportGraph('graphml')">GML</button>
+  <div style="width:6px"></div>
+  <button class="hud-btn" onclick="UI.openReportModal()">BRIEF</button>
+  <div style="width:6px"></div>
+  <button class="hud-btn" onclick="UI.toggleSimHistory()">SIMS</button>
   <div style="width:10px"></div>
   <button class="hud-btn danger" id="clear-btn" onclick="App.clearGraph()">CLEAR</button>
 </header>
@@ -726,6 +946,11 @@ kbd {
     <button class="drawer-close" onclick="UI.toggleDrawer('ingest')">✕</button>
   </div>
   <div class="drawer-body">
+    <div style="margin-bottom: 20px;">
+      <button class="btn btn-secondary w-full" onclick="App.generateGraphSummary()">
+        <span class="icon">◈</span> SUMMARIZE GRAPH
+      </button>
+    </div>
     <div>
       <div class="field-label">Raw intelligence feed</div>
       <textarea id="ingest-text" rows="9"
@@ -733,9 +958,15 @@ kbd {
       <div class="char-counter" id="char-counter">0 / 8,000</div>
     </div>
 
-    <button class="btn-primary" id="extract-btn" onclick="App.extract()">
-      ⚡ EXTRACT & MAP
-    </button>
+    <div style="display:flex; gap:8px;">
+      <button class="btn-primary" id="extract-btn" onclick="App.extract()">
+        ⚡ EXTRACT & MAP
+      </button>
+      <button class="btn-primary" style="flex:0 0 auto; padding:11px 16px; min-width:90px; background:rgba(0,0,0,0.4); border-color:rgba(255,255,255,0.2); color:var(--text)" onclick="document.getElementById('file-upload').click()">
+        UPLOAD
+      </button>
+      <input type="file" id="file-upload" style="display:none" accept=".txt,.md,.pdf,.docx" onchange="App.uploadFile(event)">
+    </div>
 
     <div id="extraction-log">
       <span style="color:var(--text-dim);font-size:0.7rem">Awaiting input...</span>
@@ -745,7 +976,10 @@ kbd {
     <div class="analytics-grid" id="analytics-grid">
       <div class="analytics-cell"><div class="analytics-cell-val" id="an-components">—</div><div class="analytics-cell-label">Components</div></div>
       <div class="analytics-cell"><div class="analytics-cell-val" id="an-density">—</div><div class="analytics-cell-label">Density</div></div>
+      <div class="analytics-cell" id="an-conflicts-cell" style="display:none"><div class="analytics-cell-val" id="an-conflicts" style="color:var(--amber)">0</div><div class="analytics-cell-label" style="color:var(--amber)">Conflicts</div></div>
     </div>
+    
+    <div id="conflicts-list" style="display:none; margin-top:8px; margin-bottom:12px"></div>
 
     <div id="entity-breakdown"></div>
 
@@ -753,11 +987,29 @@ kbd {
     <div id="top-nodes"></div>
 
     <div class="section-divider" id="bridge-title" style="display:none">Bridge Nodes</div>
-    <div id="bridge-nodes"></div>
+    <div id="bridge-nodes">    </div>
   </div>
 </aside>
 
-<!-- ── CHAT DRAWER ────────────────────────────────────────────────────────── -->
+<!-- ── SIMULATION HISTORY OVERLAY ────────────────────────────────────────── -->
+<div id="sim-history-overlay" onclick="if(event.target===this) UI.toggleSimHistory()">
+  <div id="sim-history-wrap">
+    <div class="sim-history-header">
+      <div style="display:flex; align-items:center; gap: 16px">
+        <span class="sim-history-title">⚗️ SIMULATION HISTORY</span>
+        <button class="hud-btn" id="sim-compare-btn" onclick="App.toggleSimCompare()" style="font-size:0.65rem; padding:4px 8px">COMPARE MODE</button>
+      </div>
+      <button class="drawer-close" onclick="UI.toggleSimHistory()">✕</button>
+    </div>
+    <div class="sim-history-body" id="sim-history-list">
+      <div style="text-align:center; color:var(--text-dim); padding: 40px; font-family:var(--font-mono); font-size:0.8rem">
+        Loading...
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── INSPECTOR ─────────────────────────────────────────────────────────── -->
 <aside id="chat-drawer" class="drawer">
   <div class="drawer-header">
     <span class="drawer-title">💬 STRATEGIC ANALYST</span>
@@ -789,6 +1041,7 @@ kbd {
   <div class="inspector-header">
     <span class="inspector-badge" id="inspector-badge">UNKNOWN</span>
     <span class="inspector-name" id="inspector-name">—</span>
+    <button class="hud-btn" onclick="App.mergeNode()" style="margin-right:10px;padding:4px 10px;font-size:0.65rem;border-color:var(--amber);color:var(--amber)">MERGE INTO...</button>
     <button id="inspector-close" onclick="UI.closeInspector()">✕</button>
   </div>
   <div class="inspector-body">
@@ -811,6 +1064,44 @@ kbd {
   </div>
 </div>
 
+<!-- ── PATH OVERLAY ───────────────────────────────────────────────────────── -->
+<div id="path-overlay" onclick="if(event.target.id==='path-overlay') UI.togglePathOverlay()">
+  <div id="path-wrap">
+    <div style="color:var(--cyan);font-family:var(--font-head);margin-bottom:14px;letter-spacing:0.1em;text-align:center">PATH FINDER</div>
+    <input id="path-from" type="text" placeholder="Source Node..." autocomplete="off">
+    <input id="path-to" type="text" placeholder="Target Node..." autocomplete="off">
+    <button class="btn-primary" onclick="App.findPath()" style="margin-top:4px">FIND SHORTEST PATH</button>
+  </div>
+</div>
+
+<!-- ── REPORT MODAL ───────────────────────────────────────────────────────── -->
+<div id="report-overlay" onclick="if(event.target.id==='report-overlay') UI.closeReportModal()">
+  <div id="report-wrap">
+    <div class="report-header">
+      <div class="report-title">📄 REPORT GENERATOR</div>
+      <button class="drawer-close" onclick="UI.closeReportModal()">✕</button>
+    </div>
+    <div class="report-body">
+      <div class="report-row">
+        <div class="report-label">Focus Entities (comma separated)</div>
+        <input type="text" id="report-entities-input" placeholder="e.g. Russia, Ukraine, NATO" autocomplete="off">
+        <div style="font-size:0.65rem; color:var(--text-dim); margin-top:4px;">Leave empty for a generic full-graph analytics brief. Provide entities to generate a focused LLM strategic summary.</div>
+      </div>
+      <div class="report-row">
+        <div class="report-label">Format</div>
+        <div class="report-format-toggle">
+          <button class="report-format-btn active" id="fmt-pdf" onclick="UI.setReportFormat('pdf')">PDF</button>
+          <button class="report-format-btn" id="fmt-md" onclick="UI.setReportFormat('md')">MARKDOWN</button>
+        </div>
+      </div>
+    </div>
+    <div class="report-footer">
+      <button class="hud-btn" onclick="UI.closeReportModal()">CANCEL</button>
+      <button class="btn-primary" style="width:auto; padding:8px 24px" onclick="App.generateReport()">GENERATE</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── ZOOM CONTROLS ──────────────────────────────────────────────────────── -->
 <div id="zoom-controls">
   <button class="zoom-btn" title="Zoom in"  onclick="Graph.zoom(0.3)">+</button>
@@ -818,8 +1109,15 @@ kbd {
   <button class="zoom-btn" title="Zoom out" onclick="Graph.zoom(-0.3)">−</button>
 </div>
 
+<!-- ── TIMELINE SLIDER ────────────────────────────────────────────────────── -->
+<div id="timeline-container">
+  <span id="timeline-label">LIVE</span>
+  <input type="range" id="timeline-slider" min="0" max="0" value="0" disabled>
+</div>
+
 <!-- ── MISC ───────────────────────────────────────────────────────────────── -->
 <div id="toast-container"></div>
+<div id="watch-list-container"></div>
 <div id="loading-overlay">
   <div class="loading-ring"></div>
   <div class="loading-text" id="loading-text">PROCESSING</div>
@@ -850,6 +1148,11 @@ let State = {
   currentModel: 'llama3.2',
   egoFilter: null,
   isExtracting: false,
+  timeline: [],
+  reportFormat: 'pdf',
+  watchListThresholds: {}, // stores client-side state of watched nodes
+  simHistory: [], // stores the fetched simulation history array
+  simCompareMode: false,
 };
 
 // ── API Layer ─────────────────────────────────────────────────────────────────
@@ -982,6 +1285,14 @@ const Graph = {
 
 // ── UI Manager ────────────────────────────────────────────────────────────────
 const UI = {
+  togglePathOverlay() {
+    const el = document.getElementById('path-overlay');
+    el.classList.toggle('open');
+    if (el.classList.contains('open')) {
+      document.getElementById('path-from').focus();
+    }
+  },
+
   toggleDrawer(which) {
     const drawer = document.getElementById(`${which}-drawer`);
     const fab    = document.getElementById(`${which}-fab`);
@@ -992,6 +1303,21 @@ const UI = {
 
   closeInspector() {
     document.getElementById('inspector').classList.remove('open');
+  },
+
+  openReportModal() {
+    document.getElementById('report-overlay').classList.add('open');
+    document.getElementById('report-entities-input').focus();
+  },
+
+  closeReportModal() {
+    document.getElementById('report-overlay').classList.remove('open');
+  },
+
+  setReportFormat(fmt) {
+    State.reportFormat = fmt;
+    document.getElementById('fmt-pdf').classList.toggle('active', fmt === 'pdf');
+    document.getElementById('fmt-md').classList.toggle('active', fmt === 'md');
   },
 
   showInspector(nodeId) {
@@ -1009,9 +1335,18 @@ const UI = {
 
     document.getElementById('inspector-name').textContent = nodeId;
 
+    // Watch List Button
+    const isWatched = State.watchListThresholds.hasOwnProperty(nodeId);
+    let watchHtml = '';
+    if (isWatched) {
+      watchHtml = `<button class="hud-btn" onclick="App.toggleWatchNode('${nodeId.replace(/'/g,"\\'")}')" style="margin-right:10px;padding:4px 10px;font-size:0.65rem;border-color:var(--cyan);color:var(--cyan)">★ WATCHING</button>`;
+    } else {
+      watchHtml = `<button class="hud-btn" onclick="App.toggleWatchNode('${nodeId.replace(/'/g,"\\'")}')" style="margin-right:10px;padding:4px 10px;font-size:0.65rem;border-color:var(--text-dim);color:var(--text-dim)">☆ WATCH</button>`;
+    }
+
     // Attributes
     const attrsEl = document.getElementById('inspector-attrs');
-    attrsEl.innerHTML = '';
+    attrsEl.innerHTML = watchHtml;
     try {
       const attrs = eval('(' + (nodeData.title || '').replace(/<[^>]+>/g,'').replace(/&#39;/g,"'") + ')') || {};
       Object.entries(attrs).forEach(([k, v]) => {
@@ -1124,12 +1459,258 @@ const UI = {
     });
   },
 
+  toggleWatchList() {
+    const wl = document.getElementById('watch-list-container');
+    if (wl.style.pointerEvents === 'all') {
+      wl.style.opacity = '0';
+      wl.style.pointerEvents = 'none';
+      setTimeout(() => wl.innerHTML = '', 300);
+    } else {
+      if (!State.tensions || Object.keys(State.tensions).length === 0) {
+        UI.toast('No tension data available yet.', 'warn');
+        return;
+      }
+      
+      const watchedEntities = Object.keys(State.watchListThresholds);
+      
+      if (watchedEntities.length === 0) {
+        UI.toast('Your watch list is empty. Add entities from the node inspector.', 'info');
+        // Fallback: show top 5 highest tensions
+        const alerts = Object.entries(State.tensions)
+          .filter(([n, data]) => data.alert)
+          .sort((a,b) => b[1].score - a[1].score)
+          .slice(0, 5);
+          
+        if (alerts.length === 0) return;
+        
+        wl.innerHTML = `<div style="font-size:0.65rem; color:var(--text-dim); margin-bottom:8px; text-transform:uppercase; letter-spacing:0.1em; text-align:right">Global Alerts</div>` + 
+          alerts.map(([n, data], i) => `
+          <div class="watch-item alert" style="animation-delay:${i*0.05}s">
+            <div>
+              <div class="watch-item-name" style="cursor:pointer" onclick="Graph.focusNode('${n.replace(/'/g,"\\'")}')">${n}</div>
+            </div>
+            <div>
+              <div class="watch-item-score" style="color:var(--red)">${data.score.toFixed(1)}</div>
+            </div>
+          </div>
+        `).join('');
+      } else {
+        const watchItems = watchedEntities.map(n => {
+          const tData = State.tensions[n] || { score: 0, alert: false, threshold: State.watchListThresholds[n] };
+          return { name: n, ...tData };
+        }).sort((a,b) => b.score - a.score);
+        
+        wl.innerHTML = `<div style="font-size:0.65rem; color:var(--text-dim); margin-bottom:8px; text-transform:uppercase; letter-spacing:0.1em; text-align:right">Watch List</div>` + 
+          watchItems.map((item, i) => {
+          const isAlert = item.alert;
+          const scoreColor = isAlert ? 'var(--red)' : 
+                             item.score >= 50 ? 'var(--amber)' : 
+                             item.score >= 25 ? 'var(--yellow)' : 'var(--green)';
+                             
+          return `
+            <div class="watch-item ${isAlert ? 'alert' : ''}" style="animation-delay:${i*0.05}s">
+              <div style="display:flex; align-items:center; gap:8px">
+                <button class="watch-remove-btn" onclick="App.toggleWatchNode('${item.name.replace(/'/g,"\\'")}')" title="Remove">✕</button>
+                <div class="watch-item-name" style="cursor:pointer" onclick="Graph.focusNode('${item.name.replace(/'/g,"\\'")}')">${item.name}</div>
+              </div>
+              <div>
+                <div class="watch-item-score" style="color:${scoreColor}">${item.score.toFixed(1)}</div>
+                <div class="watch-item-threshold">THR ${item.threshold}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+      
+      wl.style.opacity = '1';
+      wl.style.pointerEvents = 'all';
+    }
+  },
+
+  async toggleSimHistory() {
+    const overlay = document.getElementById('sim-history-overlay');
+    if (overlay.classList.contains('open')) {
+      overlay.classList.remove('open');
+    } else {
+      overlay.classList.add('open');
+      const listEl = document.getElementById('sim-history-list');
+      listEl.innerHTML = '<div style="text-align:center; color:var(--text-dim); padding: 40px; font-family:var(--font-mono); font-size:0.8rem">Loading...</div>';
+      
+      try {
+        const res = await API.get('/api/simulations');
+        const history = res.history || [];
+        State.simHistory = history;
+        State.simCompareMode = false;
+        
+        if (history.length === 0) {
+          listEl.innerHTML = '<div style="text-align:center; color:var(--text-dim); padding: 40px; font-family:var(--font-mono); font-size:0.8rem">No simulations run yet.</div>';
+          return;
+        }
+        
+        App.renderSimHistory();
+      } catch(e) {
+        listEl.innerHTML = `<div style="text-align:center; color:var(--red); padding: 40px; font-family:var(--font-mono); font-size:0.8rem">Failed to load history:<br>${e.message}</div>`;
+      }
+    }
+  },
+
+  toggleSimCompare() {
+    if (State.simHistory.length < 2) {
+      UI.toast('Need at least 2 simulations to compare.', 'warn');
+      return;
+    }
+    State.simCompareMode = !State.simCompareMode;
+    App.renderSimHistory();
+  },
+
+  renderSimCardInner(sim) {
+    const riskColor = sim.risk_label === 'CRITICAL' ? 'var(--red)' : 
+                      sim.risk_label === 'HIGH' ? 'var(--amber)' : 
+                      sim.risk_label === 'MEDIUM' ? 'var(--cyan)' : 'var(--green)';
+    const riskBg = sim.risk_label === 'CRITICAL' ? 'rgba(255,34,68,0.2)' : 
+                   sim.risk_label === 'HIGH' ? 'rgba(255,170,64,0.2)' : 
+                   sim.risk_label === 'MEDIUM' ? 'rgba(0,229,255,0.2)' : 'rgba(0,255,136,0.2)';
+                   
+    const d = new Date(sim.timestamp);
+    const timeStr = `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+    
+    return `
+      <div class="sim-card-header">
+        <div>
+          <div class="sim-card-scenario">${sim.scenario}</div>
+          <div class="sim-card-time">${timeStr} · Model: ${sim.model_used}</div>
+        </div>
+        <div class="sim-card-risk" style="color:${riskColor}; background:${riskBg}; border:1px solid ${riskColor}">
+          RISK: ${sim.risk_score} [${sim.risk_label}]
+        </div>
+      </div>
+      <div class="sim-card-narrative">${sim.cascade_narrative}</div>
+      <div class="sim-card-details">
+        <div>
+          <div style="color:var(--text-dim); margin-bottom:4px">Added Edges (${sim.added_edges.length})</div>
+          <ul style="margin:0; padding-left:16px; color:var(--green)">
+            ${sim.added_edges.map(e => `<li>${e.from} → ${e.to}</li>`).join('')}
+            ${sim.added_edges.length === 0 ? '<li style="color:var(--text-dim);list-style:none;margin-left:-16px">—</li>' : ''}
+          </ul>
+        </div>
+        <div>
+          <div style="color:var(--text-dim); margin-bottom:4px">Removed Edges (${sim.removed_edges.length})</div>
+          <ul style="margin:0; padding-left:16px; color:var(--red)">
+            ${sim.removed_edges.map(e => `<li>${e.from} ✕ ${e.to}</li>`).join('')}
+            ${sim.removed_edges.length === 0 ? '<li style="color:var(--text-dim);list-style:none;margin-left:-16px">—</li>' : ''}
+          </ul>
+        </div>
+      </div>
+    `;
+  },
+
+  renderSimHistory() {
+    const listEl = document.getElementById('sim-history-list');
+    const history = State.simHistory;
+
+    if (!State.simCompareMode) {
+      document.getElementById('sim-compare-btn').textContent = 'COMPARE MODE';
+      listEl.innerHTML = history.slice().reverse().map(sim => `
+        <div class="sim-card">
+          ${App.renderSimCardInner(sim)}
+        </div>
+      `).join('');
+    } else {
+      document.getElementById('sim-compare-btn').textContent = 'LIST MODE';
+      
+      const optionsStr = history.map((s, i) => `<option value="${i}">${s.scenario.substring(0,30)}... (${new Date(s.timestamp).toLocaleTimeString()})</option>`).join('');
+      
+      listEl.innerHTML = `
+        <div class="sim-compare-view">
+          <div class="compare-col">
+            <select class="compare-select" id="comp-sel-1" onchange="App.updateCompareView()">
+              ${optionsStr}
+            </select>
+            <div id="comp-view-1"></div>
+          </div>
+          <div class="compare-col">
+            <select class="compare-select" id="comp-sel-2" onchange="App.updateCompareView()">
+              ${optionsStr}
+            </select>
+            <div id="comp-view-2"></div>
+          </div>
+        </div>
+      `;
+      // Default to the two most recent
+      document.getElementById('comp-sel-1').value = history.length - 1;
+      document.getElementById('comp-sel-2').value = history.length - 2;
+      App.updateCompareView();
+    }
+  },
+
+  updateCompareView() {
+    const idx1 = document.getElementById('comp-sel-1').value;
+    const idx2 = document.getElementById('comp-sel-2').value;
+    const sim1 = State.simHistory[idx1];
+    const sim2 = State.simHistory[idx2];
+    
+    [ {sim: sim1, elId: 'comp-view-1'}, {sim: sim2, elId: 'comp-view-2'} ].forEach(({sim, elId}) => {
+      document.getElementById(elId).innerHTML = App.renderSimCardInner(sim);
+    });
+  },
+
   updateAnalytics(analytics) {
     document.getElementById('hud-nodes').textContent   = analytics.nodes;
     document.getElementById('hud-edges').textContent   = analytics.edges;
     document.getElementById('hud-density').textContent = analytics.density?.toFixed(3) ?? '0';
+    document.getElementById('hud-health').textContent  = analytics.health?.score ?? '0';
+    document.getElementById('hud-health').title        = (analytics.health?.suggestions || []).join('\n');
     document.getElementById('an-components').textContent = analytics.weakly_connected_components ?? '—';
     document.getElementById('an-density').textContent    = analytics.density?.toFixed(4) ?? '—';
+
+    // Conflicts
+    const confs = analytics.conflicts || [];
+    const confCell = document.getElementById('an-conflicts-cell');
+    const confList = document.getElementById('conflicts-list');
+    if (confs.length > 0) {
+      confCell.style.display = 'flex';
+      document.getElementById('an-conflicts').textContent = confs.length;
+      confList.style.display = 'block';
+      confList.innerHTML = `<div class="section-divider" style="color:var(--amber); border-color:rgba(255,170,64,0.3)">DETECTED CONFLICTS</div>` +
+        confs.map(c => `
+          <div class="entity-bar" style="cursor:pointer; background:rgba(255,170,64,0.05); border-left:2px solid var(--amber)" onclick="Graph.focusNode('${c.nodes[0].replace(/'/g,"\\'")}')">
+            <div style="font-family:var(--font-mono); font-size:0.65rem; color:var(--text-hi)">
+              <span style="color:var(--amber)">${c.nodes[0]}</span> ⚡ <span style="color:var(--amber)">${c.nodes[1]}</span>
+            </div>
+          </div>
+        `).join('');
+      
+      const edgeIdsToUpdate = [];
+      confs.forEach(c => {
+        const u = c.nodes[0], v = c.nodes[1];
+        const found = State.edgesData.get({ filter: e => (e.from===u && e.to===v) || (e.from===v && e.to===u) });
+        found.forEach(e => {
+          edgeIdsToUpdate.push({ id: e.id, color: { color: '#ffaa40', highlight: '#ff2244' }, dashes: [4, 4], width: 2 });
+        });
+      });
+      if (edgeIdsToUpdate.length) State.edgesData.update(edgeIdsToUpdate);
+    } else {
+      confCell.style.display = 'none';
+      confList.style.display = 'none';
+      confList.innerHTML = '';
+      // Edges reset automatically when graph is completely redrawn
+    }
+    
+    // Tensions / Alerts
+    State.tensions = analytics.tensions || {};
+    let alertCount = 0;
+    Object.values(State.tensions).forEach(t => { if (t.alert) alertCount++; });
+    
+    const alertEl = document.getElementById('hud-alerts');
+    const alertWrap = document.getElementById('hud-alerts-wrapper');
+    alertEl.textContent = alertCount;
+    if (alertCount > 0) {
+      alertWrap.style.color = 'var(--red)';
+      alertWrap.style.textShadow = '0 0 10px rgba(255, 34, 68, 0.4)';
+    } else {
+      alertWrap.style.color = 'var(--text-dim)';
+      alertWrap.style.textShadow = 'none';
+    }
 
     // Entity breakdown
     const gc = analytics.group_counts || {};
@@ -1172,10 +1753,90 @@ const UI = {
 
 // ── App Controller ────────────────────────────────────────────────────────────
 const App = {
+  async toggleWatchNode(nodeId) {
+    if (State.watchListThresholds.hasOwnProperty(nodeId)) {
+      delete State.watchListThresholds[nodeId];
+      UI.toast(`Removed ${nodeId} from Watch List`, 'info');
+    } else {
+      let thrStr = prompt(`Set tension threshold for ${nodeId} (0-100):`, "75");
+      if (thrStr === null) return; // cancelled
+      
+      let thr = parseFloat(thrStr);
+      if (isNaN(thr) || thr < 0 || thr > 100) thr = 75.0;
+      
+      State.watchListThresholds[nodeId] = thr;
+      UI.toast(`Added ${nodeId} to Watch List (Threshold: ${thr})`, 'success');
+    }
+    
+    // Sync with backend
+    try {
+      await fetch(`${API_BASE}/api/watch_list`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ thresholds: State.watchListThresholds })
+      });
+      // Refresh analytics to get updated tension alerts
+      await App.loadGraph();
+      // Re-render inspector if open
+      if (document.getElementById('inspector').classList.contains('open')) {
+        UI.showInspector(document.getElementById('inspector-name').textContent);
+      }
+      // Re-render watch list if open
+      if (document.getElementById('watch-list-container').style.opacity === '1') {
+        const wl = document.getElementById('watch-list-container');
+        wl.style.opacity = '0';
+        wl.style.pointerEvents = 'none';
+        setTimeout(() => UI.toggleWatchList(), 10);
+      }
+    } catch(e) {
+      UI.toast(`Failed to sync watch list: ${e.message}`, 'error');
+    }
+  },
+
+  async generateReport() {
+    const entitiesStr = document.getElementById('report-entities-input').value;
+    const format = State.reportFormat;
+    const entities = entitiesStr.split(',').map(s => s.trim()).filter(s => s);
+    const model = document.getElementById('model-select').value;
+    
+    UI.closeReportModal();
+    UI.showLoading('GENERATING REPORT...');
+    
+    try {
+      const response = await fetch(`${API_BASE}/api/report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entities, format, model })
+      });
+      
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({detail: response.statusText}));
+        throw new Error(err.detail || response.statusText);
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `goies_brief.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      
+      UI.toast(`Report generated successfully`, 'success');
+    } catch (e) {
+      UI.toast(`Failed to generate report: ${e.message}`, 'error', 6000);
+    } finally {
+      UI.hideLoading();
+    }
+  },
+
   async init() {
     Graph.init();
     await App.checkHealth();
     await App.loadGraph();
+    await App.loadTimeline();
     App.bindEvents();
   },
 
@@ -1214,6 +1875,153 @@ const App = {
     } catch(e) { UI.toast('Could not load graph: ' + e.message, 'error'); }
   },
 
+  async loadTimeline() {
+    try {
+      const res = await API.get('/api/snapshots/timeline');
+      State.timeline = res.timeline || [];
+      const slider = document.getElementById('timeline-slider');
+      const label = document.getElementById('timeline-label');
+      
+      if (State.timeline.length === 0) {
+        slider.disabled = true;
+        label.textContent = 'LIVE';
+        return;
+      }
+      
+      slider.disabled = false;
+      slider.max = State.timeline.length;
+      slider.value = State.timeline.length;
+      label.textContent = 'LIVE';
+      
+      let scrubTimer = null;
+      slider.oninput = (e) => {
+        const idx = parseInt(e.target.value, 10);
+        if (idx === State.timeline.length) {
+          label.textContent = 'LIVE';
+        } else {
+          const snapshot = State.timeline[idx];
+          label.textContent = 'HISTORICAL: ' + snapshot.date.replace(/T/g, ' ');
+        }
+        
+        clearTimeout(scrubTimer);
+        scrubTimer = setTimeout(async () => {
+          if (idx === State.timeline.length) {
+            await App.loadGraph();
+          } else {
+            try {
+              UI.showLoading('LOADING SNAPSHOT');
+              const data = await API.get(`/api/snapshots/${State.timeline[idx].id}`);
+              Graph.update(data.vis, []);
+              UI.updateAnalytics(data.analytics);
+            } catch(err) {
+              UI.toast('Failed to load snapshot', 'error');
+            } finally {
+              UI.hideLoading();
+            }
+          }
+        }, 300); // 300ms debounce
+      };
+    } catch(e) {}
+  },
+
+  async findPath() {
+    const from = document.getElementById('path-from').value.trim();
+    const to = document.getElementById('path-to').value.trim();
+    if (!from || !to) return UI.toast('Enter both source and target nodes', 'warn');
+    
+    UI.togglePathOverlay();
+    UI.toast(`Finding path from ${from} to ${to}...`, 'info');
+    
+    try {
+      const res = await API.get(`/api/path?src=${encodeURIComponent(from)}&tgt=${encodeURIComponent(to)}`);
+      if (!res.found) {
+        UI.toast('No path found.', 'warn');
+        return;
+      }
+      
+      const pathNodes = res.nodes;
+      State.network.unselectAll();
+      State.network.selectNodes(pathNodes);
+      
+      const edgeIdsToSelect = [];
+      for (let i = 0; i < pathNodes.length - 1; i++) {
+        const u = pathNodes[i], v = pathNodes[i+1];
+        const connectedEdges = State.edgesData.get({
+          filter: e => e.from === u && e.to === v
+        });
+        if (connectedEdges.length > 0) edgeIdsToSelect.push(connectedEdges[0].id);
+      }
+      State.network.selectEdges(edgeIdsToSelect);
+      
+      UI.toast(`Path found: ${pathNodes.length} nodes.`, 'success', 5000);
+    } catch(e) {
+      UI.toast('Path finder error: ' + e.message, 'error');
+    }
+  },
+
+  async mergeNode() {
+    const sourceNode = document.getElementById('inspector-name').textContent;
+    if (!sourceNode || sourceNode === '—') return;
+    
+    const targetNode = window.prompt(`Merge '${sourceNode}' into which node? (Exact name)`);
+    if (!targetNode || targetNode.trim() === '') return;
+    
+    if (confirm(`Merge '${sourceNode}' -> '${targetNode.trim()}'?\n\nThis completely migrates all edges and properties, and DELETES '${sourceNode}'.`)) {
+      try {
+        UI.showLoading('MERGING NODES');
+        const res = await API.post('/api/node/merge', { 
+          source: sourceNode, 
+          target: targetNode.trim() 
+        });
+        UI.toast(`Merged into ${res.into}`, 'success');
+        UI.closeInspector();
+        await App.loadGraph();
+      } catch (e) {
+        UI.toast('Merge failed: ' + e.message, 'error');
+      } finally {
+        UI.hideLoading();
+      }
+    }
+  },
+
+  async uploadFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    e.target.value = '';
+    
+    UI.toast(`Uploading ${file.name}...`, 'info');
+    UI.showLoading('PARSING DOCUMENT');
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const res = await fetch(API_BASE + '/api/ingest/file', {
+        method: 'POST',
+        body: formData
+      });
+      if (!res.ok) {
+        const errObj = await res.json().catch(() => ({detail: res.statusText}));
+        throw new Error(errObj.detail || res.statusText);
+      }
+      const data = await res.json();
+      
+      const textEl = document.getElementById('ingest-text');
+      textEl.value = data.text;
+      
+      const el = document.getElementById('char-counter');
+      el.textContent = `${data.text.length.toLocaleString()} / 8,000`;
+      el.className = 'char-counter' + (data.text.length > MAX_CHARS ? ' over' : '');
+      
+      UI.toast(`Extracted text from ${data.filename}`, 'success');
+    } catch(err) {
+      UI.toast('Upload failed: ' + err.message, 'error');
+    } finally {
+      UI.hideLoading();
+    }
+  },
+
   async extract() {
     const text = document.getElementById('ingest-text').value.trim();
     if (!text) { UI.toast('Enter intelligence text first.', 'warn'); return; }
@@ -1236,20 +2044,49 @@ const App = {
     UI.showLoading('EXTRACTING INTELLIGENCE');
 
     try {
-      const res = await API.post('/api/extract', { text, model });
-      Graph.update(res.vis, res.new_node_ids || []);
-      UI.updateAnalytics(res.analytics);
-      UI.pulseStats();
+      const persona = document.getElementById('persona-select') ? document.getElementById('persona-select').value : 'senior geopolitical intelligence analyst';
+      const res = await fetch(API_BASE + '/api/extract/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, model, persona })
+      });
+      if (!res.ok) throw new Error(await res.text());
 
-      logEl.innerHTML = `
-        <div class="log-entry success"><span class="log-icon">✓</span>
-          <span>${res.entities} entities · ${res.relations} relationships extracted</span></div>
-        <div class="log-entry info"><span class="log-icon">+</span>
-          <span>${res.nodes_added} new nodes · ${res.edges_added} new edges added</span></div>`;
-
-      UI.toast(`Extracted ${res.entities} entities, ${res.relations} relationships.`, 'success');
-      document.getElementById('ingest-text').value = '';
-      document.getElementById('char-counter').textContent = `0 / 8,000`;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        
+        const lines = buffer.split('\\n\\n');
+        buffer = lines.pop(); // keep the last incomplete chunk
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.substring(6));
+            if (data.error) throw new Error(data.error);
+            if (data.done) {
+               // Update log with final summary
+               logEl.innerHTML += `
+                 <div class="log-entry success"><span class="log-icon">✓</span>
+                   <span>${data.totals.entities} entities · ${data.totals.relations} relationships extracted</span></div>`;
+               UI.toast(`Extracted ${data.totals.entities} entities, ${data.totals.relations} relationships.`, 'success');
+               document.getElementById('ingest-text').value = '';
+               document.getElementById('char-counter').textContent = `0 / 8,000`;
+            } else {
+               // Incremental update
+               Graph.update(data.vis, data.new_node_ids || []);
+               UI.updateAnalytics(data.analytics);
+               UI.pulseStats();
+               logEl.innerHTML += `<div class="log-entry info" style="margin-left: 1rem;"><span class="log-icon" style="opacity:0.5">↳</span>
+                 <span>Chunk ${data.chunk}/${data.total_chunks}: ${data.entities} entities, ${data.relations} relationships</span></div>`;
+            }
+          }
+        }
+      }
 
       if (State.egoFilter) App.clearEgoFilter();
     } catch(e) {
@@ -1300,7 +2137,8 @@ const App = {
     messagesEl.scrollTop = messagesEl.scrollHeight;
 
     try {
-      const res = await API.post('/api/query', { question: q, model });
+      const persona = document.getElementById('persona-select') ? document.getElementById('persona-select').value : 'senior geopolitical intelligence analyst';
+      const res = await API.post('/api/query', { question: q, model, persona });
       document.getElementById(typingId)?.remove();
 
       const answer = res.answer || 'No response.';
@@ -1366,6 +2204,25 @@ const App = {
   },
 
   bindEvents() {
+    // URL Scraper on Paste
+    document.getElementById('ingest-text').addEventListener('paste', async e => {
+      const pasted = (e.clipboardData || window.clipboardData).getData('text').trim();
+      if ((pasted.startsWith('http://') || pasted.startsWith('https://')) && pasted.indexOf(' ') === -1) {
+        e.preventDefault();
+        UI.toast('Fetching article from URL...', 'info');
+        try {
+          const res = await API.post('/api/ingest/url', { url: pasted });
+          document.getElementById('ingest-text').value = res.text;
+          const el = document.getElementById('char-counter');
+          el.textContent = `${res.text.length.toLocaleString()} / 8,000`;
+          el.className = 'char-counter' + (res.text.length > MAX_CHARS ? ' over' : '');
+          UI.toast('Article fetched successfully.', 'success');
+        } catch (err) {
+          UI.toast('Failed to fetch URL: ' + err.message, 'error');
+        }
+      }
+    });
+
     // Char counter
     document.getElementById('ingest-text').addEventListener('input', e => {
       const len = e.target.value.length;

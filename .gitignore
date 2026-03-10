@@ -24,3 +24,6 @@ graph_render.html
 # OS
 .DS_Store
 Thumbs.db
+
+# Docker
+.dockerignore

@@ -42,7 +42,7 @@ class Extraction:
     confidence: float = 1.0
 
 
-_SYSTEM_PROMPT = """You are a precision geopolitical intelligence extraction engine.
+_SYSTEM_PROMPT = """You are a {persona}. You are a precision geopolitical intelligence extraction engine.
 
 ENTITY CLASSES — use exactly these strings:
   Country      — nation states, governments, regions, blocs (EU, NATO)
@@ -147,7 +147,7 @@ def _parse_extractions(raw: str) -> List[Extraction]:
 
 
 def extract_intelligence(
-    input_text: str, model: str = DEFAULT_MODEL
+    input_text: str, model: str = DEFAULT_MODEL, persona: str = "senior geopolitical intelligence analyst"
 ) -> List[Extraction]:
     """
     Main entry point. Chunks input, calls Ollama per chunk, deduplicates results.
@@ -158,7 +158,7 @@ def extract_intelligence(
     seen: set = set()
 
     for chunk in chunks:
-        prompt = f"{_SYSTEM_PROMPT}\n\nTEXT TO ANALYZE:\n{chunk}"
+        prompt = f"{_SYSTEM_PROMPT.format(persona=persona)}\n\nTEXT TO ANALYZE:\n{chunk}"
         raw = _call_ollama(prompt, model)
         for ext in _parse_extractions(raw):
             key = (ext.extraction_class.lower(), ext.extraction_text.lower())
@@ -167,6 +167,35 @@ def extract_intelligence(
                 all_extractions.append(ext)
 
     return all_extractions
+
+
+def extract_intelligence_stream(
+    input_text: str, model: str = DEFAULT_MODEL, persona: str = "senior geopolitical intelligence analyst"
+):
+    """
+    Stream entry point. Yields chunks of extractions as they are completed.
+    Raises: ConnectionError, TimeoutError, ValueError, RuntimeError
+    """
+    chunks = chunk_text(input_text)
+    seen: set = set()
+
+    for i, chunk in enumerate(chunks, 1):
+        prompt = f"{_SYSTEM_PROMPT.format(persona=persona)}\n\nTEXT TO ANALYZE:\n{chunk}"
+        raw = _call_ollama(prompt, model)
+        
+        chunk_extractions = []
+        for ext in _parse_extractions(raw):
+            key = (ext.extraction_class.lower(), ext.extraction_text.lower())
+            if key not in seen:
+                seen.add(key)
+                chunk_extractions.append(ext)
+                
+        yield {
+            "chunk_index": i,
+            "total_chunks": len(chunks),
+            "extractions": chunk_extractions
+        }
+
 
 
 def list_available_models() -> List[str]:

@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  goies-backend:
+    build: .
+    container_name: goies-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # If the backend needs to know where ollama is running inside the docker network:
+      # (Note: depending on how _call_ollama is implemented, you might need to update 
+      # the hardcoded localhost calls to use this environment variable, or use 'host.docker.internal')
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+    networks:
+      - goies-net
+    volumes:
+      - ./goies_snapshots:/app/goies_snapshots
+      - ./goies_graph.json:/app/goies_graph.json
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: goies-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - goies-net
+
+networks:
+  goies-net:
+    driver: bridge
+
+volumes:
+  ollama_data:
