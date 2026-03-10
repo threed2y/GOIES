@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 import pathlib
 import io
 import uvicorn
-import httpx
 from pydantic import BaseModel
 import pydantic
 from fastapi import (
@@ -37,6 +36,7 @@ from utils import (
     export_graphml,
 )
 from extractor import (
+    check_ollama_health,
     extract_intelligence,
     extract_intelligence_stream,
     list_available_models,
@@ -53,59 +53,14 @@ app = FastAPI(title="GOIES", version="3.0.0", docs_url="/api/docs")
 
 # Read Ollama host from env — supports Docker Compose and Railway
 OLLAMA_BASE_URL = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "8"))
-
-# ── CORS: allow browser → FastAPI only (browser never calls Ollama directly) ──
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "null",  # file:// pages during dev
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
 
-
-# ── Async Ollama helper — server-side only, zero browser CORS exposure ─────────
-async def _ollama_get(path: str) -> dict:
-    async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
-        r = await client.get(f"{OLLAMA_BASE_URL}{path}")
-        r.raise_for_status()
-        return r.json()
-
-
-async def _ollama_post(path: str, body: dict, timeout: float = 60.0) -> dict:
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(f"{OLLAMA_BASE_URL}{path}", json=body)
-        r.raise_for_status()
-        return r.json()
-
-
-async def _ollama_health() -> dict:
-    """Returns {"ollama": "online"|"offline", "models": [...]} — never raises."""
-    try:
-        data = await _ollama_get("/api/tags")
-        models = [
-            (m.get("name", m) if isinstance(m, dict) else m)
-            for m in data.get("models", [])
-        ]
-        return {"ollama": "online", "models": models, "host": OLLAMA_BASE_URL}
-    except Exception as e:
-        return {
-            "ollama": "offline",
-            "models": [],
-            "host": OLLAMA_BASE_URL,
-            "error": str(e),
-        }
-
-
 graph: nx.DiGraph = load_graph()
-MAX_INPUT_CHARS = 8_000
+MAX_INPUT_CHARS = (
+    500_000  # no practical limit; extractor chunks large docs automatically
+)
 
 GROUP_COLORS: Dict[str, str] = {
     "country": "#ff7b72",
@@ -286,12 +241,8 @@ osint_engine = OsintEngine()  # feeds loaded from osint_feeds.json
 
 # ── Existing Endpoints ─────────────────────────────────────────────────────────
 @app.get("/api/health")
-async def health():
-    """
-    Proxies the Ollama health check server-side.
-    The browser calls /api/health (same-origin) — no CORS issue ever.
-    """
-    return await _ollama_health()
+def health():
+    return check_ollama_health()
 
 
 @app.post("/api/ingest/url")
@@ -300,9 +251,78 @@ def ingest_url(req: UrlIngestRequest):
         from ingestor import fetch_url_text
 
         text = fetch_url_text(req.url)
-        return {"text": text}
+        return {"text": text, "chars": len(text)}
     except Exception as e:
         raise HTTPException(400, str(e))
+
+
+class ExtractUrlRequest(BaseModel):
+    url: str
+    model: str = "llama3.2"
+    persona: str = "senior geopolitical intelligence analyst"
+
+
+@app.post("/api/extract/url")
+def extract_url_stream(req: ExtractUrlRequest):
+    """Fetch URL + stream extraction in one call. No char limit; fully chunked."""
+
+    def event_generator():
+        # Step 1 — fetch
+        try:
+            from ingestor import fetch_url_text
+
+            text = fetch_url_text(req.url)
+        except Exception as e:
+            yield f"data: {json.dumps({'error': f'Fetch failed: {e}'})}\n\n"
+            return
+
+        if not text.strip():
+            yield f"data: {json.dumps({'error': 'No text could be extracted from URL'})}\n\n"
+            return
+
+        yield f"data: {json.dumps({'fetched': True, 'chars': len(text), 'url': req.url})}\n\n"
+
+        # Step 2 — stream extraction chunks
+        total_ent, total_rel, new_nodes = 0, 0, []
+        try:
+            for chunk_data in extract_intelligence_stream(
+                text, model=req.model, persona=req.persona
+            ):
+                extractions = chunk_data["extractions"]
+                diff = _update_graph(extractions)
+                ents = sum(
+                    1
+                    for e in extractions
+                    if e.extraction_class.lower() != "relationship"
+                )
+                rels = len(extractions) - ents
+                total_ent += ents
+                total_rel += rels
+                new_nodes.extend(diff["new_node_ids"])
+                payload = {
+                    "chunk": chunk_data["chunk_index"],
+                    "total_chunks": chunk_data["total_chunks"],
+                    "entities": ents,
+                    "relations": rels,
+                    "new_node_ids": diff["new_node_ids"],
+                    "vis": graph_to_vis(graph),
+                    "analytics": get_graph_analytics(graph, watch_list_thresholds),
+                }
+                yield f"data: {json.dumps(payload)}\n\n"
+
+            done = {
+                "done": True,
+                "totals": {
+                    "entities": total_ent,
+                    "relations": total_rel,
+                    "new_nodes": list(set(new_nodes)),
+                },
+            }
+            yield f"data: {json.dumps(done)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.post("/api/ingest/file")
@@ -329,9 +349,8 @@ async def ingest_file(file: UploadFile = File(...)):
 
 
 @app.get("/api/models")
-async def models():
-    h = await _ollama_health()
-    return {"models": h.get("models", [])}
+def models():
+    return {"models": list_available_models()}
 
 
 @app.get("/api/snapshots")
@@ -388,16 +407,18 @@ def update_watch_list(req: WatchListRequest):
 
 
 @app.post("/api/report")
-async def export_report(req: ReportRequest):
+def export_report(req: ReportRequest):
     import reporter
 
     try:
         from utils import load_graph, retrieve_graph_context
+        import requests as http
 
         g = load_graph()
 
         summary = ""
         if req.entities:
+            # Generate LLM summary for selected entities
             context = retrieve_graph_context(" ".join(req.entities), g)
             prompt = (
                 f"You are a senior geopolitical intelligence analyst.\n"
@@ -406,15 +427,17 @@ async def export_report(req: ReportRequest):
                 f"Context:\n{context}\n\nStrategic Summary:"
             )
             try:
-                data = await _ollama_post(
-                    "/api/generate",
-                    {"model": req.model, "prompt": prompt, "stream": False},
+                resp = http.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    json={"model": req.model, "prompt": prompt, "stream": False},
+                    timeout=60,
                 )
-                summary = data.get("response", "").strip()
+                resp.raise_for_status()
+                summary = resp.json().get("response", "").strip()
             except Exception as e:
                 print(f"Failed to generate LLM summary: {e}")
 
-        if req.format.lower() in ("md", "markdown"):
+        if req.format.lower() == "md" or req.format.lower() == "markdown":
             md_content = reporter.generate_markdown_report(g, req.entities, summary)
             return Response(
                 content=md_content,
@@ -608,7 +631,9 @@ def extract_stream(req: ExtractRequest):
 
 
 @app.post("/api/query")
-async def query(req: QueryRequest):
+def query(req: QueryRequest):
+    import requests as http
+
     if len(graph.nodes) == 0:
         return {"answer": "Graph is empty. Ingest data first.", "context": ""}
     context = retrieve_graph_context(req.question, graph)
@@ -619,10 +644,13 @@ async def query(req: QueryRequest):
         f"Knowledge Graph Context:\n{context}\n\nQuestion: {req.question}\n\nConcise strategic answer:"
     )
     try:
-        data = await _ollama_post(
-            "/api/generate", {"model": req.model, "prompt": prompt, "stream": False}
+        resp = http.post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            json={"model": req.model, "prompt": prompt, "stream": False},
+            timeout=60,
         )
-        answer = data.get("response", "No response.")
+        resp.raise_for_status()
+        answer = resp.json().get("response", "No response.")
     except Exception as e:
         raise HTTPException(503, f"Ollama error: {e}")
     return {"answer": answer, "context": context}
