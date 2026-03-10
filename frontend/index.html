@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>GOIES — Geopolitical Open Intelligence & Extraction System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet"/>
+<style>
+/* ─── BASE ─────────────────────────────────────────────────────────────────── */
+:root {
+  --void:       #010508;
+  --deep:       #020b14;
+  --base:       #050f1e;
+  --panel:      #081526;
+  --raised:     #0c1d35;
+  --border:     #122840;
+  --border-hi:  #1a3d60;
+  --accent:     #00d4ff;
+  --accent-dim: #006888;
+  --accent-glow:#00d4ff33;
+  --accent-halo:#00d4ff15;
+  --red:        #ff2244;
+  --red-dim:    #5a0010;
+  --amber:      #ffaa00;
+  --green:      #00ff88;
+  --green-dim:  #003322;
+  --purple:     #b060ff;
+  --text-hi:    #e8f2fc;
+  --text-mid:   #8aaac8;
+  --text-lo:    #3d5a78;
+  --text-mute:  #1a2e40;
+  --font-hud:   'Orbitron', monospace;
+  --font-body:  'Rajdhani', sans-serif;
+  --font-mono:  'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--void);
+  color: var(--text-hi);
+  font-family: var(--font-body);
+  font-size: 16px;
+  overflow-x: hidden;
+  cursor: crosshair;
+}
+::selection { background: var(--accent); color: var(--void); }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--deep); }
+::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
+
+/* ─── CANVAS BACKGROUND ─────────────────────────────────────────────────────── */
+#bg-canvas {
+  position: fixed; inset: 0; z-index: 0;
+  pointer-events: none;
+}
+
+/* ─── SCAN LINES OVERLAY ────────────────────────────────────────────────────── */
+.scanlines {
+  position: fixed; inset: 0; z-index: 1; pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.08) 2px,
+    rgba(0,0,0,0.08) 4px
+  );
+}
+
+/* ─── NOISE GRAIN ───────────────────────────────────────────────────────────── */
+.grain {
+  position: fixed; inset: -200%; z-index: 1; pointer-events: none; opacity: .025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  animation: grain-shift 0.4s steps(1) infinite;
+}
+@keyframes grain-shift {
+  0%   { transform: translate(0, 0); }
+  10%  { transform: translate(-2%, -3%); }
+  20%  { transform: translate(3%, 2%); }
+  30%  { transform: translate(-1%, 4%); }
+  40%  { transform: translate(4%, -1%); }
+  50%  { transform: translate(-3%, 3%); }
+  60%  { transform: translate(2%, -4%); }
+  70%  { transform: translate(-4%, 1%); }
+  80%  { transform: translate(1%, -2%); }
+  90%  { transform: translate(-2%, 4%); }
+  100% { transform: translate(0, 0); }
+}
+
+/* ─── LAYOUT ────────────────────────────────────────────────────────────────── */
+.page { position: relative; z-index: 2; }
+
+/* ─── TOP NAV ───────────────────────────────────────────────────────────────── */
+#topnav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 48px; height: 60px;
+  background: linear-gradient(180deg, rgba(1,5,8,0.95) 0%, rgba(1,5,8,0.0) 100%);
+  backdrop-filter: blur(4px);
+}
+.nav-logo {
+  font-family: var(--font-hud);
+  font-size: 15px; font-weight: 900;
+  color: var(--accent); letter-spacing: 4px;
+  text-shadow: 0 0 24px var(--accent-glow);
+  display: flex; align-items: center; gap: 10px;
+}
+.nav-logo .logo-mark {
+  width: 28px; height: 28px; border: 2px solid var(--accent);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; border-radius: 2px;
+  box-shadow: 0 0 14px var(--accent-glow), inset 0 0 8px var(--accent-halo);
+  animation: logo-flicker 4s ease-in-out infinite;
+}
+@keyframes logo-flicker {
+  0%, 94%, 100% { opacity: 1; }
+  95% { opacity: 0.7; }
+  97% { opacity: 1; }
+  98% { opacity: 0.6; }
+}
+.nav-links { display: flex; gap: 32px; align-items: center; }
+.nav-link {
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 2px;
+  color: var(--text-lo); text-decoration: none;
+  transition: color 0.2s ease;
+}
+.nav-link:hover { color: var(--accent); }
+.nav-cta {
+  font-family: var(--font-hud); font-size: 10px; font-weight: 700; letter-spacing: 2px;
+  color: var(--void); background: var(--accent);
+  padding: 8px 20px; border: none; border-radius: 2px;
+  text-decoration: none; cursor: pointer;
+  box-shadow: 0 0 20px var(--accent-glow);
+  transition: all 0.2s ease;
+}
+.nav-cta:hover { background: #00f0ff; box-shadow: 0 0 32px var(--accent); }
+
+/* ─── HERO ──────────────────────────────────────────────────────────────────── */
+#hero {
+  min-height: 100vh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 120px 48px 80px;
+  position: relative;
+  text-align: center;
+}
+
+/* Grid overlay */
+#hero::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(var(--text-mute) 1px, transparent 1px),
+    linear-gradient(90deg, var(--text-mute) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, black 40%, transparent 100%);
+  opacity: 0.4;
+}
+
+.hero-eyebrow {
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 4px;
+  color: var(--accent); margin-bottom: 24px;
+  display: flex; align-items: center; gap: 12px;
+  animation: slide-in-up 0.8s ease both;
+}
+.hero-eyebrow::before, .hero-eyebrow::after {
+  content: ''; display: block;
+  width: 40px; height: 1px; background: var(--accent); opacity: 0.5;
+}
+
+.hero-title {
+  font-family: var(--font-hud);
+  font-size: clamp(40px, 7vw, 88px);
+  font-weight: 900; line-height: 1.0;
+  letter-spacing: 6px;
+  color: var(--text-hi);
+  margin-bottom: 12px;
+  animation: slide-in-up 0.8s 0.1s ease both;
+  text-shadow: 0 0 80px rgba(0,212,255,0.15);
+}
+.hero-title .accent { color: var(--accent); }
+
+.hero-subtitle {
+  font-family: var(--font-hud);
+  font-size: clamp(12px, 1.8vw, 18px);
+  font-weight: 400; letter-spacing: 8px;
+  color: var(--text-lo); margin-bottom: 36px;
+  animation: slide-in-up 0.8s 0.2s ease both;
+}
+
+.hero-description {
+  max-width: 600px;
+  font-size: 18px; font-weight: 400;
+  color: var(--text-mid); line-height: 1.7;
+  margin-bottom: 48px;
+  animation: slide-in-up 0.8s 0.3s ease both;
+}
+
+.hero-actions {
+  display: flex; gap: 16px; align-items: center;
+  animation: slide-in-up 0.8s 0.4s ease both;
+}
+
+.btn-launch {
+  font-family: var(--font-hud); font-size: 11px; font-weight: 700; letter-spacing: 3px;
+  color: var(--void); background: var(--accent);
+  padding: 16px 40px; border: none; border-radius: 2px;
+  text-decoration: none; cursor: pointer;
+  box-shadow: 0 0 40px var(--accent-glow);
+  transition: all 0.25s ease;
+  display: inline-flex; align-items: center; gap: 10px;
+  position: relative; overflow: hidden;
+}
+.btn-launch::before {
+  content: '';
+  position: absolute; top: -100%; left: -100%;
+  width: 300%; height: 300%;
+  background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.15) 50%, transparent 70%);
+  transition: all 0.4s ease;
+}
+.btn-launch:hover::before { top: 100%; left: 100%; }
+.btn-launch:hover { background: #00eeff; box-shadow: 0 0 60px var(--accent), 0 4px 24px rgba(0,0,0,0.4); transform: translateY(-2px); }
+.btn-launch .arrow { font-size: 16px; transition: transform 0.2s; }
+.btn-launch:hover .arrow { transform: translateX(4px); }
+
+.btn-docs {
+  font-family: var(--font-hud); font-size: 11px; font-weight: 700; letter-spacing: 3px;
+  color: var(--accent); background: transparent;
+  padding: 15px 32px; border: 1px solid var(--accent);
+  border-radius: 2px; text-decoration: none; cursor: pointer;
+  transition: all 0.25s ease;
+}
+.btn-docs:hover { background: var(--accent-halo); box-shadow: 0 0 20px var(--accent-glow); }
+
+/* Hero status bar */
+.hero-status {
+  margin-top: 64px;
+  display: flex; gap: 32px; align-items: center;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-lo);
+  animation: slide-in-up 0.8s 0.5s ease both;
+}
+.status-item { display: flex; align-items: center; gap: 8px; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; }
+.status-dot.green { background: var(--green); box-shadow: 0 0 8px var(--green); animation: blink 2s infinite; }
+.status-dot.amber { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+.status-dot.blue { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: blink 3s 1s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+@keyframes slide-in-up {
+  from { opacity: 0; transform: translateY(30px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── METRICS STRIP ─────────────────────────────────────────────────────────── */
+#metrics {
+  padding: 0 48px 80px;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+  background: var(--border);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.metric-block {
+  background: var(--deep);
+  padding: 32px 40px;
+  display: flex; flex-direction: column; gap: 6px;
+  position: relative; overflow: hidden;
+  transition: background 0.2s ease;
+}
+.metric-block::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: var(--accent); opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.metric-block:hover { background: var(--panel); }
+.metric-block:hover::before { opacity: 1; }
+.metric-val {
+  font-family: var(--font-hud); font-size: 36px; font-weight: 900;
+  color: var(--accent); letter-spacing: 2px;
+  text-shadow: 0 0 30px var(--accent-glow);
+}
+.metric-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 3px; color: var(--text-lo); }
+.metric-sub { font-size: 13px; color: var(--text-mid); margin-top: 4px; font-weight: 500; }
+
+/* ─── FEATURES SECTION ──────────────────────────────────────────────────────── */
+#features {
+  padding: 100px 48px;
+  max-width: 1400px; margin: 0 auto;
+}
+.section-header {
+  margin-bottom: 64px;
+}
+.section-tag {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 4px;
+  color: var(--accent); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 10px;
+}
+.section-tag::before {
+  content: ''; display: block; width: 24px; height: 1px;
+  background: var(--accent);
+}
+.section-title {
+  font-family: var(--font-hud); font-size: clamp(24px, 3.5vw, 42px);
+  font-weight: 700; letter-spacing: 2px; color: var(--text-hi);
+  line-height: 1.2;
+}
+.section-title .dim { color: var(--text-lo); }
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+}
+.feature-card {
+  background: var(--deep); padding: 40px 36px;
+  display: flex; flex-direction: column; gap: 16px;
+  position: relative; overflow: hidden;
+  transition: background 0.25s ease;
+  cursor: default;
+}
+.feature-card::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at var(--mx,50%) var(--my,50%), var(--accent-halo) 0%, transparent 60%);
+  opacity: 0; transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.feature-card:hover::after { opacity: 1; }
+.feature-card:hover { background: var(--base); }
+
+.feature-icon {
+  width: 48px; height: 48px;
+  border: 1px solid var(--border-hi); border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  background: var(--panel);
+  transition: all 0.25s ease;
+}
+.feature-card:hover .feature-icon {
+  border-color: var(--accent);
+  box-shadow: 0 0 16px var(--accent-glow);
+  background: var(--raised);
+}
+.feature-name {
+  font-family: var(--font-hud); font-size: 13px; font-weight: 700;
+  letter-spacing: 2px; color: var(--text-hi);
+}
+.feature-desc {
+  font-size: 15px; color: var(--text-mid); line-height: 1.6; flex: 1;
+}
+.feature-tags {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+}
+.feature-tag {
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 1.5px;
+  color: var(--accent-dim); border: 1px solid var(--border);
+  padding: 3px 8px; border-radius: 2px;
+  background: var(--panel);
+}
+
+/* ─── PIPELINE SECTION ──────────────────────────────────────────────────────── */
+#pipeline {
+  padding: 100px 48px;
+  background: var(--base);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.pipeline-inner {
+  max-width: 1100px; margin: 0 auto;
+}
+.pipeline-steps {
+  display: flex; align-items: flex-start; gap: 0;
+  margin-top: 64px; position: relative;
+}
+.pipeline-steps::before {
+  content: '';
+  position: absolute; top: 32px; left: 32px; right: 32px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-dim), var(--accent), var(--accent-dim), transparent);
+}
+.pipeline-step {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  text-align: center; padding: 0 20px; position: relative;
+  animation: step-appear 0.6s ease both;
+}
+.pipeline-step:nth-child(1) { animation-delay: 0.1s; }
+.pipeline-step:nth-child(2) { animation-delay: 0.2s; }
+.pipeline-step:nth-child(3) { animation-delay: 0.3s; }
+.pipeline-step:nth-child(4) { animation-delay: 0.4s; }
+.pipeline-step:nth-child(5) { animation-delay: 0.5s; }
+@keyframes step-appear {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.step-node {
+  width: 64px; height: 64px;
+  border: 1px solid var(--border-hi);
+  background: var(--panel);
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; margin-bottom: 20px;
+  position: relative; z-index: 1;
+  transition: all 0.25s ease;
+}
+.step-node:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 24px var(--accent-glow);
+  transform: scale(1.05);
+}
+.step-num {
+  position: absolute; top: -10px; right: -10px;
+  width: 20px; height: 20px;
+  background: var(--accent); color: var(--void);
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+}
+.step-label {
+  font-family: var(--font-hud); font-size: 10px; font-weight: 700;
+  letter-spacing: 1.5px; color: var(--text-hi); margin-bottom: 8px;
+}
+.step-desc { font-size: 12px; color: var(--text-lo); line-height: 1.5; }
+
+/* ─── TECH STACK ────────────────────────────────────────────────────────────── */
+#stack {
+  padding: 80px 48px;
+  max-width: 1400px; margin: 0 auto;
+}
+.stack-grid {
+  display: flex; flex-wrap: wrap; gap: 12px; margin-top: 48px;
+}
+.stack-pill {
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 1px;
+  padding: 10px 20px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-mid); border-radius: 2px;
+  transition: all 0.2s ease;
+  display: flex; align-items: center; gap: 8px;
+}
+.stack-pill:hover {
+  border-color: var(--accent-dim);
+  background: var(--raised); color: var(--text-hi);
+}
+.stack-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+/* ─── CTA SECTION ───────────────────────────────────────────────────────────── */
+#cta {
+  padding: 100px 48px;
+  text-align: center;
+  background: var(--deep);
+  border-top: 1px solid var(--border);
+  position: relative; overflow: hidden;
+}
+#cta::before {
+  content: '';
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, var(--accent-halo) 0%, transparent 60%);
+  pointer-events: none;
+}
+.cta-inner { position: relative; z-index: 1; }
+.cta-title {
+  font-family: var(--font-hud); font-size: clamp(28px, 4vw, 52px);
+  font-weight: 900; letter-spacing: 4px;
+  color: var(--text-hi); margin-bottom: 20px;
+}
+.cta-sub {
+  font-size: 18px; color: var(--text-mid);
+  margin-bottom: 48px; max-width: 500px; margin-left: auto; margin-right: auto;
+}
+.terminal-block {
+  font-family: var(--font-mono); font-size: 13px; color: var(--text-mid);
+  background: var(--base); border: 1px solid var(--border);
+  padding: 24px 32px; border-radius: 4px;
+  text-align: left; max-width: 520px;
+  margin: 0 auto 48px;
+  position: relative;
+}
+.terminal-block::before {
+  content: '● ● ●';
+  display: block;
+  font-size: 10px; color: var(--text-lo);
+  margin-bottom: 16px; letter-spacing: 4px;
+}
+.term-line { padding: 2px 0; }
+.term-line .prompt { color: var(--accent-dim); }
+.term-line .cmd { color: var(--accent); }
+.term-line .comment { color: var(--text-lo); }
+.term-cursor {
+  display: inline-block; width: 8px; height: 14px;
+  background: var(--accent); vertical-align: -2px;
+  animation: cursor-blink 1s step-start infinite;
+}
+@keyframes cursor-blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+/* ─── FOOTER ────────────────────────────────────────────────────────────────── */
+footer {
+  padding: 32px 48px;
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-lo);
+}
+.footer-logo {
+  font-family: var(--font-hud); font-size: 12px; font-weight: 700;
+  color: var(--accent); letter-spacing: 3px;
+}
+.footer-links { display: flex; gap: 24px; }
+.footer-link { color: var(--text-lo); text-decoration: none; transition: color 0.2s; }
+.footer-link:hover { color: var(--accent); }
+
+/* ─── RESPONSIVE ────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  #topnav { padding: 0 24px; }
+  #topnav .nav-links { display: none; }
+  #hero { padding: 100px 24px 60px; }
+  #metrics { grid-template-columns: repeat(2,1fr); padding: 0 24px 60px; }
+  #features { padding: 60px 24px; }
+  .features-grid { grid-template-columns: 1fr; }
+  #pipeline { padding: 60px 24px; }
+  .pipeline-steps { flex-direction: column; align-items: center; }
+  .pipeline-steps::before { display: none; }
+  #stack { padding: 60px 24px; }
+  #cta { padding: 60px 24px; }
+  footer { flex-direction: column; gap: 16px; text-align: center; }
+}
+</style>
+</head>
+<body>
+<canvas id="bg-canvas"></canvas>
+<div class="scanlines"></div>
+<div class="grain"></div>
+
+<div class="page">
+
+<!-- ─── NAV ──────────────────────────────────────────────────────────────────── -->
+<nav id="topnav">
+  <div class="nav-logo">
+    <span class="logo-mark">◈</span>
+    GOIES
+  </div>
+  <div class="nav-links">
+    <a href="#features" class="nav-link">FEATURES</a>
+    <a href="#pipeline" class="nav-link">PIPELINE</a>
+    <a href="#stack" class="nav-link">STACK</a>
+    <a href="https://github.com/tanu-1403/GOIES" target="_blank" class="nav-link">GITHUB</a>
+  </div>
+  <a href="app.html" class="nav-cta">LAUNCH SYSTEM ▶</a>
+</nav>
+
+<!-- ─── HERO ──────────────────────────────────────────────────────────────────── -->
+<section id="hero">
+  <div class="hero-eyebrow">CLASSIFIED · INTELLIGENCE PLATFORM · v4.0</div>
+  <h1 class="hero-title">
+    <span class="accent">GEO</span>POLITICAL<br/>INTELLIGENCE
+  </h1>
+  <div class="hero-subtitle">OPEN INTELLIGENCE & EXTRACTION SYSTEM</div>
+  <p class="hero-description">
+    Transform raw intelligence feeds into an interactive knowledge graph.
+    Map actors, simulate crises, forecast events — entirely offline.
+  </p>
+  <div class="hero-actions">
+    <a href="app.html" class="btn-launch">
+      LAUNCH DASHBOARD <span class="arrow">→</span>
+    </a>
+    <a href="https://github.com/tanu-1403/GOIES" target="_blank" class="btn-docs">
+      VIEW SOURCE
+    </a>
+  </div>
+  <div class="hero-status">
+    <div class="status-item"><div class="status-dot green"></div>LOCAL LLM READY</div>
+    <div class="status-item"><div class="status-dot blue"></div>NETWORKX ENGINE</div>
+    <div class="status-item"><div class="status-dot amber"></div>OSINT FEEDS ACTIVE</div>
+    <div class="status-item"><div class="status-dot green"></div>ZERO EGRESS</div>
+  </div>
+</section>
+
+<!-- ─── METRICS ──────────────────────────────────────────────────────────────── -->
+<div id="metrics">
+  <div class="metric-block">
+    <div class="metric-val" id="m-nodes">—</div>
+    <div class="metric-label">GRAPH NODES</div>
+    <div class="metric-sub">Entities extracted</div>
+  </div>
+  <div class="metric-block">
+    <div class="metric-val" id="m-edges">—</div>
+    <div class="metric-label">RELATIONSHIPS</div>
+    <div class="metric-sub">Active connections</div>
+  </div>
+  <div class="metric-block">
+    <div class="metric-val" id="m-tension">—</div>
+    <div class="metric-label">GLOBAL RISK</div>
+    <div class="metric-sub">Tension index / 100</div>
+  </div>
+  <div class="metric-block">
+    <div class="metric-val" id="m-health">—</div>
+    <div class="metric-label">SYSTEM STATUS</div>
+    <div class="metric-sub" id="m-status-sub">Connecting...</div>
+  </div>
+</div>
+
+<!-- ─── FEATURES ─────────────────────────────────────────────────────────────── -->
+<section id="features">
+  <div class="section-header">
+    <div class="section-tag">CAPABILITIES</div>
+    <h2 class="section-title">Full-spectrum <span class="dim">intelligence</span><br/>at your fingertips</h2>
+  </div>
+  <div class="features-grid" id="features-grid">
+
+    <div class="feature-card">
+      <div class="feature-icon">⊕</div>
+      <div class="feature-name">INTELLIGENCE EXTRACTION</div>
+      <div class="feature-desc">
+        Ingest raw text, PDFs, URLs, and DOCX files. LLM-powered NER extracts 7 entity classes and relationships — streamed live onto the graph canvas.
+      </div>
+      <div class="feature-tags">
+        <span class="feature-tag">OLLAMA</span>
+        <span class="feature-tag">STREAMING</span>
+        <span class="feature-tag">NER</span>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">◈</div>
+      <div class="feature-name">KNOWLEDGE GRAPH</div>
+      <div class="feature-desc">
+        Interactive vis.js graph with ego filtering, pathfinding, node merging, and group filtering. Betweenness centrality, degree centrality, and density metrics.
+      </div>
+      <div class="feature-tags">
+        <span class="feature-tag">VIS.JS</span>
+        <span class="feature-tag">NETWORKX</span>
+        <span class="feature-tag">GRAPH THEORY</span>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">⊛</div>
+      <div class="feature-name">GEO TENSION MAP</div>
+      <div class="feature-desc">
+        World map with live tension heatmaps. Risk scoring 0–100 per country. User-defined alert thresholds with real-time watch list monitoring.
+      </div>
+      <div class="feature-tags">
+        <span class="feature-tag">LEAFLET.JS</span>
+        <span class="feature-tag">CARTO DARK</span>
+        <span class="feature-tag">ALERTS</span>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">⟁</div>
+      <div class="feature-name">SCENARIO SIMULATION</div>
+      <div class="feature-desc">
+        Simulate hypothetical events and model cascading geopolitical disruptions. Compare Mode contrasts two simulation runs side-by-side structurally.
+      </div>
+      <div class="feature-tags">
+        <span class="feature-tag">LLM INFERENCE</span>
+        <span class="feature-tag">COMPARE MODE</span>
+        <span class="feature-tag">CASCADE</span>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">◎</div>
+      <div class="feature-name">CRISIS FORECASTING</div>
+      <div class="feature-desc">
+        Structural graph analysis + LLM reasoning generates ranked crisis forecasts with probability, severity, timeframe, and mitigation strategies.
+      </div>
+      <div class="feature-tags">
+        <span class="feature-tag">FORECASTER</span>
+        <span class="feature-tag">PROBABILITY</span>
+        <span class="feature-tag">MITIGATION</span>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">⊹</div>
+      <div class="feature-name">STRATEGIC ANALYST CHAT</div>
+      <div class="feature-desc">
+        Natural language GraphRAG interface. Query the knowledge graph conversationally. Receive intelligence answers grounded exclusively in your data.
+      </div>
+      <div class="feature-tags">
+        <span class="feature-tag">GRAPHRAG</span>
+        <span class="feature-tag">CHAT</span>
+        <span class="feature-tag">CONTEXT-AWARE</span>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">⊡</div>
+      <div class="feature-name">TEMPORAL TIMELINE</div>
+      <div class="feature-desc">
+        Automatic graph snapshots on every extraction. Replay the evolution of your intelligence picture over time with side-by-side diff visualization.
+      </div>
+      <div class="feature-tags">
+        <span class="feature-tag">SNAPSHOTS</span>
+        <span class="feature-tag">DIFF</span>
+        <span class="feature-tag">TEMPORAL</span>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">⊕</div>
+      <div class="feature-name">SEMANTIC EMBEDDINGS</div>
+      <div class="feature-desc">
+        Node2Vec graph embeddings surface structurally similar entities. K-means clustering reveals hidden communities. Semantic search across the graph.
+      </div>
+      <div class="feature-tags">
+        <span class="feature-tag">NODE2VEC</span>
+        <span class="feature-tag">K-MEANS</span>
+        <span class="feature-tag">SEMANTIC</span>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">⊛</div>
+      <div class="feature-name">OSINT ENGINE</div>
+      <div class="feature-desc">
+        RSS feed aggregation with automatic LLM extraction. Wikipedia enrichment for any node. GDELT news event queries. Full OSINT pipeline.
+      </div>
+      <div class="feature-tags">
+        <span class="feature-tag">RSS</span>
+        <span class="feature-tag">GDELT</span>
+        <span class="feature-tag">WIKIPEDIA</span>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ─── PIPELINE ──────────────────────────────────────────────────────────────── -->
+<section id="pipeline">
+  <div class="pipeline-inner">
+    <div class="section-header">
+      <div class="section-tag">ARCHITECTURE</div>
+      <h2 class="section-title">Intelligence <span class="dim">pipeline</span></h2>
+    </div>
+    <div class="pipeline-steps">
+      <div class="pipeline-step">
+        <div class="step-node">
+          <span>📡</span>
+          <div class="step-num">1</div>
+        </div>
+        <div class="step-label">INGEST</div>
+        <div class="step-desc">Text, PDF, DOCX, URL, RSS feeds</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-node">
+          <span>🧠</span>
+          <div class="step-num">2</div>
+        </div>
+        <div class="step-label">EXTRACT</div>
+        <div class="step-desc">LLM entity & relationship extraction</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-node">
+          <span>◈</span>
+          <div class="step-num">3</div>
+        </div>
+        <div class="step-label">MAP</div>
+        <div class="step-desc">NetworkX graph construction</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-node">
+          <span>📊</span>
+          <div class="step-num">4</div>
+        </div>
+        <div class="step-label">ANALYZE</div>
+        <div class="step-desc">Topology, tension, pathfinding</div>
+      </div>
+      <div class="pipeline-step">
+        <div class="step-node">
+          <span>⚡</span>
+          <div class="step-num">5</div>
+        </div>
+        <div class="step-label">ACT</div>
+        <div class="step-desc">Simulate, forecast, report</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── STACK ─────────────────────────────────────────────────────────────────── -->
+<section id="stack">
+  <div class="section-header">
+    <div class="section-tag">TECHNOLOGY</div>
+    <h2 class="section-title">Zero-trust <span class="dim">stack</span><br/>runs entirely offline</h2>
+  </div>
+  <div class="stack-grid">
+    <div class="stack-pill"><div class="stack-dot" style="background:#00d4ff"></div>FastAPI + Uvicorn</div>
+    <div class="stack-pill"><div class="stack-dot" style="background:#ff7b72"></div>Ollama llama3.2</div>
+    <div class="stack-pill"><div class="stack-dot" style="background:#d2a8ff"></div>NetworkX</div>
+    <div class="stack-pill"><div class="stack-dot" style="background:#79c0ff"></div>vis.js Network</div>
+    <div class="stack-pill"><div class="stack-dot" style="background:#7ee787"></div>Leaflet.js</div>
+    <div class="stack-pill"><div class="stack-dot" style="background:#ffa657"></div>Chart.js</div>
+    <div class="stack-pill"><div class="stack-dot" style="background:#f0e68c"></div>Node2Vec</div>
+    <div class="stack-pill"><div class="stack-dot" style="background:#56d364"></div>GDELT API</div>
+    <div class="stack-pill"><div class="stack-dot" style="background:#00d4ff"></div>Python 3.11+</div>
+    <div class="stack-pill"><div class="stack-dot" style="background:#ff7b72"></div>ReportLab PDF</div>
+    <div class="stack-pill"><div class="stack-dot" style="background:#d2a8ff"></div>Docker Compose</div>
+    <div class="stack-pill"><div class="stack-dot" style="background:#79c0ff"></div>Pydantic v2</div>
+  </div>
+</section>
+
+<!-- ─── CTA ───────────────────────────────────────────────────────────────────── -->
+<section id="cta">
+  <div class="cta-inner">
+    <h2 class="cta-title">READY TO DEPLOY</h2>
+    <p class="cta-sub">Start mapping the geopolitical landscape in minutes. No data leaves your machine.</p>
+    <div class="terminal-block">
+      <div class="term-line"><span class="prompt">$ </span><span class="cmd">ollama run llama3.2</span></div>
+      <div class="term-line"><span class="prompt">$ </span><span class="cmd">pip install -r requirements.txt</span></div>
+      <div class="term-line"><span class="prompt">$ </span><span class="cmd">uvicorn server:app --reload</span></div>
+      <div class="term-line" style="margin-top:8px;color:var(--green)">✓ GOIES running on http://localhost:8000 <span class="term-cursor"></span></div>
+    </div>
+    <a href="app.html" class="btn-launch" style="font-size:12px;padding:18px 48px">
+      OPEN INTELLIGENCE DASHBOARD <span class="arrow">→</span>
+    </a>
+  </div>
+</section>
+
+<!-- ─── FOOTER ────────────────────────────────────────────────────────────────── -->
+<footer>
+  <div class="footer-logo">◈ GOIES</div>
+  <div class="footer-links">
+    <a href="https://github.com/tanu-1403/GOIES" target="_blank" class="footer-link">GITHUB</a>
+    <a href="app.html" class="footer-link">DASHBOARD</a>
+    <a href="https://github.com/tanu-1403/GOIES/blob/main/README.md" target="_blank" class="footer-link">DOCS</a>
+  </div>
+  <div>GOIES · OPEN SOURCE · LOCAL-FIRST INTELLIGENCE</div>
+</footer>
+
+</div><!-- /page -->
+
+<script>
+/* ── Animated Network Background ─────────────────────────────────────────────── */
+const canvas = document.getElementById('bg-canvas');
+const ctx = canvas.getContext('2d');
+let W, H, nodes, mouse = { x: -9999, y: -9999 };
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+
+function createNodes(n = 80) {
+  nodes = Array.from({ length: n }, () => ({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    vx: (Math.random() - 0.5) * 0.4,
+    vy: (Math.random() - 0.5) * 0.4,
+    r: Math.random() * 2 + 1,
+    opacity: Math.random() * 0.5 + 0.1,
+    pulsePhase: Math.random() * Math.PI * 2,
+  }));
+}
+
+function drawFrame(t) {
+  ctx.clearRect(0, 0, W, H);
+
+  // Draw edges
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const dx = nodes[j].x - nodes[i].x;
+      const dy = nodes[j].y - nodes[i].y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 160) {
+        const alpha = (1 - dist / 160) * 0.12;
+        ctx.beginPath();
+        ctx.moveTo(nodes[i].x, nodes[i].y);
+        ctx.lineTo(nodes[j].x, nodes[j].y);
+        ctx.strokeStyle = `rgba(0,212,255,${alpha})`;
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Draw nodes
+  nodes.forEach(n => {
+    const pulse = 0.5 + 0.5 * Math.sin(t * 0.001 + n.pulsePhase);
+    const dx = n.x - mouse.x;
+    const dy = n.y - mouse.y;
+    const md = Math.sqrt(dx * dx + dy * dy);
+    const glow = md < 120 ? (1 - md / 120) * 0.8 : 0;
+
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r + glow * 2, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(0,212,255,${n.opacity * pulse + glow * 0.3})`;
+    ctx.fill();
+
+    if (glow > 0.3) {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r * 3, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(0,212,255,${glow * 0.08})`;
+      ctx.fill();
+    }
+
+    // Move
+    n.x += n.vx;
+    n.y += n.vy;
+    if (n.x < 0 || n.x > W) n.vx *= -1;
+    if (n.y < 0 || n.y > H) n.vy *= -1;
+  });
+
+  requestAnimationFrame(drawFrame);
+}
+
+window.addEventListener('resize', () => { resize(); createNodes(); });
+window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+resize();
+createNodes();
+requestAnimationFrame(drawFrame);
+
+/* ── Mouse shimmer on feature cards ─────────────────────────────────────────── */
+document.querySelectorAll('.feature-card').forEach(card => {
+  card.addEventListener('mousemove', e => {
+    const r = card.getBoundingClientRect();
+    const x = ((e.clientX - r.left) / r.width * 100).toFixed(1);
+    const y = ((e.clientY - r.top) / r.height * 100).toFixed(1);
+    card.style.setProperty('--mx', x + '%');
+    card.style.setProperty('--my', y + '%');
+  });
+});
+
+/* ── Live API metrics ────────────────────────────────────────────────────────── */
+async function loadMetrics() {
+  try {
+    const BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      ? `${window.location.protocol}//${window.location.hostname}:${window.location.port || 8000}`
+      : '';
+
+    const [health, graph] = await Promise.all([
+      fetch(`${BASE}/api/health`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${BASE}/api/graph`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]);
+
+    if (health) {
+      document.getElementById('m-health').textContent = health.ollama === 'online' ? 'ONLINE' : 'OFFLINE';
+      document.getElementById('m-health').style.color = health.ollama === 'online' ? 'var(--green)' : 'var(--red)';
+      document.getElementById('m-status-sub').textContent = health.ollama === 'online' ? 'Ollama connected' : 'Ollama offline';
+    }
+
+    if (graph?.analytics) {
+      const a = graph.analytics;
+      document.getElementById('m-nodes').textContent = a.nodes ?? '—';
+      document.getElementById('m-edges').textContent = a.edges ?? '—';
+
+      const tensions = a.tensions || {};
+      const scores = Object.values(tensions).map(t => typeof t === 'object' ? (t.score || 0) : (t || 0));
+      const maxT = scores.length ? Math.max(...scores) : 0;
+      const tEl = document.getElementById('m-tension');
+      tEl.textContent = maxT > 0 ? Math.round(maxT) : '—';
+      tEl.style.color = maxT >= 75 ? 'var(--red)' : maxT >= 50 ? 'var(--amber)' : maxT >= 25 ? 'var(--amber)' : 'var(--green)';
+    }
+  } catch (e) { /* backend not running, that's okay on landing page */ }
+}
+
+loadMetrics();
+
+/* ── Smooth scroll ────────────────────────────────────────────────────────────── */
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelector(a.getAttribute('href'))?.scrollIntoView({ behavior: 'smooth' });
+  });
+});
+</script>
+</body>
+</html>

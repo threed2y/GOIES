@@ -879,7 +879,7 @@ async def osint_gdelt(entity: str, days: int = 7):
 
 
 # ── Static SPA ─────────────────────────────────────────────────────────────────
-_static = pathlib.Path(__file__).parent / "static"
+_static = pathlib.Path(__file__).parent / "frontend"
 _static.mkdir(exist_ok=True)
 app.mount("/", StaticFiles(directory=str(_static), html=True), name="static")
 
