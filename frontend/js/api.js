@@ -20,24 +20,35 @@ async function _handleResponse(res) {
   return res.json();
 }
 
+/** Fetch with timeout (default 8s) */
+async function _fetchWithTimeout(url, opts = {}, ms = 8000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 export const API = {
   /** GET request */
-  get: (path) => fetch(`${BASE}${path}`).then(_handleResponse),
+  get: (path, ms) => _fetchWithTimeout(`${BASE}${path}`, {}, ms).then(_handleResponse),
 
   /** POST request with JSON body */
-  post: (path, body) =>
-    fetch(`${BASE}${path}`, {
+  post: (path, body, ms) =>
+    _fetchWithTimeout(`${BASE}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }).then(_handleResponse),
+    }, ms).then(_handleResponse),
 
   /** DELETE request */
-  del: (path) => fetch(`${BASE}${path}`, { method: 'DELETE' }).then(_handleResponse),
+  del: (path) => _fetchWithTimeout(`${BASE}${path}`, { method: 'DELETE' }).then(_handleResponse),
 
   /** POST file upload (multipart/form-data) */
   upload: (path, formData) =>
-    fetch(`${BASE}${path}`, { method: 'POST', body: formData }).then(_handleResponse),
+    _fetchWithTimeout(`${BASE}${path}`, { method: 'POST', body: formData }, 30000).then(_handleResponse),
 
   /** SSE streaming POST — returns raw Response for caller to read */
   stream: (path, body) =>
