@@ -36,8 +36,10 @@ REQUEST_TIMEOUT_SECS = 120
 # FIX-4: Cross-session deduplication
 SEEN_FILE        = pathlib.Path("extractor_seen.json")
 SEEN_MAX_ENTRIES = 50_000   # cap prevents unbounded file growth
+SEEN_FLUSH_BATCH = 200      # only flush to disk after this many new keys (not per-chunk)
 _seen_lock       = threading.Lock()
 _global_seen: Set[tuple] = set()   # in-memory mirror of the persisted set
+_seen_unflushed: int = 0            # count of new keys not yet persisted
 
 
 def _load_seen() -> None:
@@ -244,11 +246,15 @@ def extract_intelligence(
             # FIX-1: Bad JSON from LLM on this chunk — log and continue
             logger.warning("Chunk %d/%d parse failed (skipped): %s", i, len(chunks), exc)
 
-    # FIX-4: Persist new keys back to disk
+    # FIX-4: Persist new keys back to disk (batched — not per-chunk)
     if new_keys:
+        global _seen_unflushed
         with _seen_lock:
             _global_seen.update(new_keys)
-            _save_seen()
+            _seen_unflushed += len(new_keys)
+            if _seen_unflushed >= SEEN_FLUSH_BATCH:
+                _save_seen()
+                _seen_unflushed = 0
 
     return all_extractions
 
@@ -312,11 +318,13 @@ def extract_intelligence_stream(
                 "parse_error":  str(exc),
             }
 
-    # FIX-4: Persist after full stream
+    # FIX-4: Persist after full stream — single flush regardless of chunk count
     if new_keys:
+        global _seen_unflushed
         with _seen_lock:
             _global_seen.update(new_keys)
-            _save_seen()
+            _save_seen()   # always flush on clean stream completion
+            _seen_unflushed = 0
 
 
 def list_available_models() -> List[str]:
