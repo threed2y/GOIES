@@ -55,9 +55,12 @@ def _load_seen() -> None:
 
 
 def _save_seen() -> None:
-    """Persist _global_seen to disk, capped at SEEN_MAX_ENTRIES (newest kept)."""
+    """Persist _global_seen to disk, capped at SEEN_MAX_ENTRIES.
+    Set iteration order is non-deterministic; sorting before slicing ensures
+    a stable, reproducible cap rather than random entry loss.
+    """
     try:
-        entries = list(_global_seen)
+        entries = sorted(_global_seen)   # sort gives deterministic truncation
         if len(entries) > SEEN_MAX_ENTRIES:
             entries = entries[-SEEN_MAX_ENTRIES:]
         SEEN_FILE.write_text(json.dumps(entries), encoding="utf-8")
@@ -149,12 +152,24 @@ def _parse_extractions(raw: str) -> List[Extraction]:
     raw = re.sub(r"```\s*$", "", raw, flags=re.MULTILINE)
     raw = raw.strip()
 
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not match:
+    # Find the outermost JSON object using bracket counting — more robust than
+    # greedy r"{.*}" which swallows surrounding prose when the LLM adds preamble.
+    start = raw.find("{")
+    if start == -1:
         raise ValueError(f"No JSON found in model output: {raw[:400]}")
-
+    depth, end = 0, -1
+    for i, ch in enumerate(raw[start:], start):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    if end == -1:
+        raise ValueError(f"Unbalanced JSON braces in model output: {raw[:400]}")
     try:
-        data = json.loads(match.group(0))
+        data = json.loads(raw[start:end + 1])
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON from model: {e} | Raw: {raw[:400]}")
 
@@ -163,7 +178,11 @@ def _parse_extractions(raw: str) -> List[Extraction]:
         cls  = str(item.get("extraction_class", "")).strip()
         text = str(item.get("extraction_text", "")).strip()
         attrs = item.get("attributes", {})
-        conf  = float(item.get("confidence", 1.0))
+        try:
+            conf = float(item.get("confidence", 1.0))
+        except (TypeError, ValueError):
+            conf = 1.0
+        conf = max(0.0, min(1.0, conf))  # clamp — LLMs occasionally emit values > 1
 
         if not cls or not text:
             continue
