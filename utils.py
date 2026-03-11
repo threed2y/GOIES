@@ -48,7 +48,15 @@ def chunk_text(
             if current:
                 chunks.append(current)
             overlap_text = chunks[-1][-overlap:].strip() if chunks else ""
-            current = (overlap_text + " " + sentence).strip()
+            base = (overlap_text + " " + sentence).strip()
+            # Hard fallback: a single sentence longer than max_chars gets force-split
+            if len(base) > max_chars:
+                while len(base) > max_chars:
+                    chunks.append(base[:max_chars])
+                    base = base[max_chars - overlap:]
+                current = base
+            else:
+                current = base
     if current:
         chunks.append(current)
     return chunks or [text]
@@ -60,12 +68,13 @@ def _similarity(a: str, b: str) -> float:
 
 
 def resolve_node_name(graph: nx.DiGraph, raw_name: str) -> str:
-    for node in graph.nodes:
-        if node.lower() == raw_name.lower():
-            return node
+    raw_lower = raw_name.lower()
     best_score, best_match = 0.0, None
     for node in graph.nodes:
-        score = _similarity(node, raw_name)
+        node_str = str(node)
+        if node_str.lower() == raw_lower:
+            return node  # exact case-insensitive match — no need to continue
+        score = _similarity(node_str, raw_name)
         if score > best_score:
             best_score, best_match = score, node
     return best_match if best_score >= FUZZY_THRESHOLD else raw_name
@@ -110,11 +119,25 @@ def merge_nodes(graph: nx.DiGraph, source_node: str, target_node: str) -> bool:
 
 
 # ── Graph Persistence ─────────────────────────────────────────────────────────
+_last_snapshot_time: float = 0.0
+_SNAPSHOT_MIN_INTERVAL = 30.0  # seconds — prevents one snapshot per chunk during streaming
+
 def save_graph(graph: nx.DiGraph, path: pathlib.Path = GRAPH_SAVE_PATH) -> None:
+    import time as _time
+    global _last_snapshot_time
+
     data = nx.node_link_data(graph)
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
-    # FIX-2: Timestamped snapshot with automatic rotation
+    # FIX-2: Timestamped snapshot with automatic rotation.
+    # Debounced: skip snapshot if one was written less than _SNAPSHOT_MIN_INTERVAL ago.
+    # During streaming extraction (one save/chunk), this avoids writing + rotating 50
+    # snapshot files per ingest while still capturing a snapshot after each real session.
+    now = _time.monotonic()
+    if now - _last_snapshot_time < _SNAPSHOT_MIN_INTERVAL:
+        return
+    _last_snapshot_time = now
+
     snapshots_dir = pathlib.Path("goies_snapshots")
     snapshots_dir.mkdir(exist_ok=True)
     timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
@@ -123,11 +146,11 @@ def save_graph(graph: nx.DiGraph, path: pathlib.Path = GRAPH_SAVE_PATH) -> None:
 
     # Rotate: delete oldest snapshots beyond MAX_SNAPSHOTS
     existing = sorted(snapshots_dir.glob("goies_graph_v_*.json"))
-    for old in existing[:-MAX_SNAPSHOTS]:
+    for snap in existing[:-MAX_SNAPSHOTS]:
         try:
-            old.unlink()
+            snap.unlink()
         except OSError as exc:
-            logger.warning("Could not delete old snapshot %s: %s", old, exc)
+            logger.warning("Could not delete old snapshot %s: %s", snap, exc)
 
 
 def load_graph(path: pathlib.Path = GRAPH_SAVE_PATH) -> nx.DiGraph:
@@ -205,7 +228,7 @@ def graph_health_score(graph: nx.DiGraph) -> Dict[str, Any]:
     # FIX-5: Exclude blank labels before scoring diversity.
     # Previously len(set(labels)) counted "" as a unique label, giving score 1.0
     # (perfect) for a fully-unlabelled graph — the opposite of the intended signal.
-    nonempty_labels = [l for l in labels if l.strip()]
+    nonempty_labels = [lbl for lbl in labels if lbl.strip()]
     if not nonempty_labels:
         label_diversity = 0.0
     else:
@@ -300,9 +323,23 @@ def retrieve_graph_context(
 
     seed_nodes: set = set()
     for node in graph.nodes:
-        node_words = set(re.sub(r"[^\w\s]", "", node.lower()).split())
+        node_str = str(node)
+        node_words = set(re.sub(r"[^\w\s]", "", node_str.lower()).split())
         if query_words & node_words:
             seed_nodes.add(node)
+
+    # Fuzzy fallback: if no exact word match found, pick nodes with highest name
+    # similarity to any query word so context is never completely off-topic
+    if not seed_nodes and query_words:
+        best_score, best_node = 0.0, None
+        for node in graph.nodes:
+            node_str = str(node)
+            for w in query_words:
+                score = _similarity(node_str, w)
+                if score > best_score:
+                    best_score, best_node = score, node
+        if best_node and best_score > 0.4:
+            seed_nodes.add(best_node)
 
     visited, frontier = set(seed_nodes), set(seed_nodes)
     for _ in range(max_hops):
