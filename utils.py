@@ -67,17 +67,45 @@ def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
+# Resolution cache: maps (graph_id, raw_lower_name) → canonical node name.
+# Keyed on id(graph) so it is automatically invalidated when the graph object
+# is replaced (e.g. after a clear).  Cache is bounded to 10 000 entries.
+_resolve_cache: dict = {}
+_RESOLVE_CACHE_MAX = 10_000
+
+
 def resolve_node_name(graph: nx.DiGraph, raw_name: str) -> str:
     raw_lower = raw_name.lower()
+    cache_key = (id(graph), raw_lower)
+
+    # Fast path: cache hit
+    if cache_key in _resolve_cache:
+        cached = _resolve_cache[cache_key]
+        # Validate the cached node still exists (graph may have grown)
+        if cached in graph or cached == raw_name:
+            return cached
+        else:
+            del _resolve_cache[cache_key]
+
+    # Slow path: O(n) scan
     best_score, best_match = 0.0, None
     for node in graph.nodes:
         node_str = str(node)
         if node_str.lower() == raw_lower:
-            return node  # exact case-insensitive match — no need to continue
+            # Exact match — cache and return immediately
+            if len(_resolve_cache) >= _RESOLVE_CACHE_MAX:
+                _resolve_cache.clear()
+            _resolve_cache[cache_key] = node
+            return node
         score = _similarity(node_str, raw_name)
         if score > best_score:
             best_score, best_match = score, node
-    return best_match if best_score >= FUZZY_THRESHOLD else raw_name
+
+    result = best_match if best_score >= FUZZY_THRESHOLD else raw_name
+    if len(_resolve_cache) >= _RESOLVE_CACHE_MAX:
+        _resolve_cache.clear()
+    _resolve_cache[cache_key] = result
+    return result
 
 
 def merge_nodes(graph: nx.DiGraph, source_node: str, target_node: str) -> bool:
@@ -165,20 +193,27 @@ def load_graph(path: pathlib.Path = GRAPH_SAVE_PATH) -> nx.DiGraph:
 
 
 # ── Graph Analytics ───────────────────────────────────────────────────────────
+# Canonical keyword lists — also referenced in forecaster.py (kept in sync manually
+# until a shared constants module is introduced).
+HOSTILE_KEYWORDS = [
+    "sanction", "attack", "invade", "bomb", "missile", "strike", "kill",
+    "threaten", "blockade", "terrorize", "restrict", "ban", "expel",
+    "dispute", "tension", "pressure", "cyber", "confront", "war", "conflict",
+]
+COOPERATIVE_KEYWORDS = [
+    "cooperate", "ally", "partner", "invest", "aid", "support", "trade",
+    "treaty", "agreement", "join",
+]
+
+
 def _is_hostile(label: str) -> bool:
-    keywords = [
-        "sanction", "attack", "invade", "bomb", "missile", "strike", "kill",
-        "threaten", "blockade", "terrorize", "restrict", "ban", "expel",
-        "dispute", "tension", "pressure", "cyber", "confront",
-    ]
+    keywords = HOSTILE_KEYWORDS
     label = label.lower()
     return any(k in label for k in keywords)
 
 
 def _is_cooperative(label: str) -> bool:
-    keywords = [
-        "cooperate", "ally", "partner", "invest", "aid", "support", "trade", "treaty",
-    ]
+    keywords = COOPERATIVE_KEYWORDS
     label = label.lower()
     return any(k in label for k in keywords)
 
@@ -232,7 +267,10 @@ def graph_health_score(graph: nx.DiGraph) -> Dict[str, Any]:
     if not nonempty_labels:
         label_diversity = 0.0
     else:
-        label_diversity = min(1.0, len(set(nonempty_labels)) / max(len(nonempty_labels) * 0.3, 1))
+        # Ratio of unique labels to total non-empty labels. Capped at 1.0.
+        # A graph where every edge has a distinct label scores 1.0 (perfectly diverse).
+        # Previously the formula divided by 0.3×total which allowed scores > 1 before the min() cap.
+        label_diversity = min(1.0, len(set(nonempty_labels)) / len(nonempty_labels))
 
     avg_edges = graph.number_of_edges() / max(graph.number_of_nodes(), 1)
     edge_density_score = min(1.0, avg_edges / 3.0)
