@@ -69,6 +69,9 @@ from geo import get_geo_data
 from osint_engine import OsintEngine
 from query_engine import GQLParser, run_gql
 from simulator import run_simulation
+import itertools
+import requests as http  # used in query(), export_report(), graph_summary()
+
 from utils import (
     export_csv,
     export_graphml,
@@ -115,15 +118,27 @@ GROUP_COLORS: Dict[str, str] = {
 # Per-IP sliding-window counters stored in memory (fine for single-process local deploy).
 
 class _RateLimiter:
+    _PRUNE_INTERVAL = 300   # seconds between stale-key sweeps
+
     def __init__(self):
         self._windows: Dict[str, list] = defaultdict(list)
         self._lock = threading.Lock()
+        self._last_prune = time.monotonic()
 
     def is_allowed(self, key: str, max_requests: int, window_secs: float) -> bool:
         now = time.monotonic()
         with self._lock:
+            # Periodically purge keys with no recent activity to prevent unbounded growth
+            if now - self._last_prune > self._PRUNE_INTERVAL:
+                stale_cutoff = now - max(window_secs, 3600)
+                self._windows = defaultdict(
+                    list,
+                    {k: v for k, v in self._windows.items()
+                     if any(t > stale_cutoff for t in v)}
+                )
+                self._last_prune = now
+
             timestamps = self._windows[key]
-            # Drop expired entries
             cutoff = now - window_secs
             self._windows[key] = [t for t in timestamps if t > cutoff]
             if len(self._windows[key]) >= max_requests:
@@ -317,7 +332,7 @@ def _update_graph(extractions) -> dict:
                     edges_added += 1
                 graph.add_edge(src, tgt, label=ext.extraction_text, confidence=ext.confidence)
 
-        save_graph(graph)
+    save_graph(graph)  # I/O outside the lock — keeps lock held time minimal
 
     return {"nodes_added": nodes_added, "edges_added": edges_added, "new_node_ids": new_ids}
 
@@ -446,7 +461,11 @@ async def ingest_file(request: Request, file: UploadFile = File(...)):
 
     # FIX-9: Enforce upload size cap before reading entire file into memory
     content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > MAX_UPLOAD_BYTES:
+    try:
+        _cl_int = int(content_length) if content_length else 0
+    except (ValueError, TypeError):
+        _cl_int = 0
+    if _cl_int > MAX_UPLOAD_BYTES:
         raise HTTPException(413, f"File too large. Maximum size is {MAX_UPLOAD_BYTES // (1024*1024)} MB.")
 
     from ingestor import parse_pdf, parse_docx
@@ -513,10 +532,13 @@ def get_snapshot(snapshot_id: str):
     if not filepath.exists() or filepath.suffix != ".json":
         raise HTTPException(status_code=404, detail="Snapshot not found")
 
-    with open(filepath, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    g = nx.node_link_graph(data, directed=True, multigraph=False)
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        g = nx.node_link_graph(data, directed=True, multigraph=False)
+    except (json.JSONDecodeError, ValueError, KeyError) as exc:
+        logger.warning("Corrupt snapshot %s: %s", snapshot_id, exc)
+        raise HTTPException(status_code=500, detail="Snapshot file is corrupt.")
     return {"vis": graph_to_vis(g), "analytics": get_graph_analytics(g, watch_list_thresholds)}
 
 
@@ -540,7 +562,6 @@ def update_watch_list(req: WatchListRequest):
 def export_report(req: ReportRequest, request: Request):
     _check_rate(request, max_req=5, window=60)
     import reporter
-    import requests as http
 
     try:
         g = load_graph()
@@ -585,6 +606,7 @@ def export_report(req: ReportRequest, request: Request):
 # ── Graph ──────────────────────────────────────────────────────────────────────
 @app.get("/api/graph")
 def get_graph_ep(ego: Optional[str] = None, hops: int = 2):
+    hops = max(1, min(hops, 4))  # clamp: ego BFS beyond 4 hops is O(n²) expensive
     g = get_ego_subgraph(graph, ego, hops) if ego and ego in graph else graph
     return {
         "vis":       graph_to_vis(g),
@@ -596,7 +618,6 @@ def get_graph_ep(ego: Optional[str] = None, hops: int = 2):
 @app.get("/api/narrative/summary")
 def graph_summary(request: Request, model: str = "llama3.2"):
     _check_rate(request, max_req=5, window=60)
-    import itertools
     analytics  = get_graph_analytics(graph, watch_list_thresholds)
     edge_sample = [
         f"{u} -> {v} [{d.get('label', '')}]"
@@ -721,7 +742,6 @@ def extract_stream(req: ExtractRequest, request: Request):
 @app.post("/api/query")
 def query(req: QueryRequest, request: Request):
     _check_rate(request, max_req=20, window=60)
-    import requests as http
     if len(graph.nodes) == 0:
         return {"answer": "Graph is empty. Ingest data first.", "context": ""}
     context = retrieve_graph_context(req.question, graph)
@@ -748,7 +768,7 @@ def query(req: QueryRequest, request: Request):
 def clear_graph():
     with _graph_lock:
         graph.clear()
-        save_graph(graph)
+    save_graph(graph)  # I/O outside the lock — consistent with _update_graph
     return {"status": "cleared"}
 
 
@@ -933,6 +953,7 @@ def embed_search(q: str, k: int = 8):
 def embed_clusters(n: int = 5):
     if not embedding_engine.is_trained:
         raise HTTPException(400, "Embeddings not trained yet.")
+    n = max(2, min(n, 20))  # KMeans requires n_clusters >= 2; cap at 20
     clusters = embedding_engine.cluster_nodes(n_clusters=n)
     return {"clusters": clusters, "k": n}
 
@@ -1005,7 +1026,7 @@ _continuous_state: Dict[str, Any] = {
     "total_articles":  0,
 }
 _continuous_task: Optional[asyncio.Task] = None
-_continuous_lock = threading.Lock()
+_continuous_lock = asyncio.Lock()  # asyncio-safe — used in async endpoints
 
 
 class ContinuousRequest(BaseModel):
@@ -1028,7 +1049,8 @@ def _generate_auto_queries(g: nx.DiGraph, model: str, cycle: int) -> List[str]:
     if deg:
         top = deg[0][0]
         queries.append(f"neighbors of {top}")
-        queries.append(f"path from {deg[0][0]} to {deg[-1][0]}" if len(deg) > 1 else f"find countries")
+        # Use second-highest degree node for path — avoids pairing with isolated nodes
+        queries.append(f"path from {deg[0][0]} to {deg[1][0]}" if len(deg) > 1 else "find countries")
 
     # Rotate entity-type queries by cycle number
     entity_types = ["countries", "persons", "organizations", "events", "technologies"]
@@ -1055,7 +1077,6 @@ def _generate_auto_queries(g: nx.DiGraph, model: str, cycle: int) -> List[str]:
 
 async def _continuous_loop():
     """Background task: ingest → auto-query → sleep → repeat."""
-    import asyncio as _asyncio
     state = _continuous_state
     cycle = 0
 
@@ -1131,8 +1152,8 @@ async def _continuous_loop():
         # ── Sleep until next cycle ─────────────────────────────────────────
         logger.info("Continuous loop sleeping %ds until next cycle…", state["interval_secs"])
         try:
-            await _asyncio.sleep(state["interval_secs"])
-        except _asyncio.CancelledError:
+            await asyncio.sleep(state["interval_secs"])
+        except asyncio.CancelledError:
             break
 
     state["active"] = False
@@ -1145,7 +1166,7 @@ async def continuous_start(req: ContinuousRequest, request: Request):
     _check_rate(request, max_req=5, window=60)
     global _continuous_task
 
-    with _continuous_lock:
+    async with _continuous_lock:
         if _continuous_state["active"]:
             raise HTTPException(409, "Continuous loop already running.")
 
@@ -1183,7 +1204,7 @@ async def continuous_start(req: ContinuousRequest, request: Request):
 @app.post("/api/osint/continuous/stop")
 async def continuous_stop():
     global _continuous_task
-    with _continuous_lock:
+    async with _continuous_lock:
         if not _continuous_state["active"]:
             raise HTTPException(409, "Continuous loop is not running.")
         _continuous_state["active"] = False
@@ -1235,6 +1256,7 @@ async def osint_enrich(node_id: str, model: str = "llama3.2"):
 
 @app.get("/api/osint/gdelt")
 async def osint_gdelt(entity: str, days: int = 7):
+    days = max(1, min(days, 90))  # clamp: 0 days is nonsensical; >90 is too broad
     articles = await osint_engine.query_gdelt(entity, days)
     return {"entity": entity, "articles": articles, "count": len(articles)}
 
